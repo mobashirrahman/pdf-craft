@@ -1,3 +1,44 @@
+<!-- BEGIN PROJECT AGENT WORKFLOW -->
+## Three-agent workflow with Luna coordination
+
+For substantive implementation, use GPT-5.6 Luna as the coordinator and three
+role sessions: Astra architect, OpenCode Muse coder, separate OpenCode Muse reviewer.
+These instructions apply only to the coordinator; delegated roles never spawn teams.
+
+1. Gather a compact evidence packet: objective, relevant files, current behavior,
+   constraints, acceptance checks. Reuse existing plans where applicable.
+2. Ask Codex `architect` (gpt-6-astra, medium) for one concise plan. No commands,
+   browsing, edits, or execution supervision by the architect. Save the plan and
+   close its thread before coding. Skip architecture for trivial unambiguous fixes.
+3. Run OpenCode `muse-coder` using exactly
+   `opencode/muse-spark-1.3-contributor-free`. Supply the plan, owned files and checks.
+   Let the bounded task finish; do not edit its files concurrently or interrupt
+   merely because output is quiet. Save its session ID and full output on disk.
+4. Run `muse-reviewer` in a NEW OpenCode session with the actual scoped diff,
+   relevant source files, acceptance checks and test evidence. Reviewer cannot edit
+   or run shell commands; coordinator captures the diff/test evidence for it.
+   A fresh session gives independent context, not independent model diversity.
+5. Return concrete defects to the SAME coder session for one focused repair;
+   ask the reviewer to recheck affected changes. Coordinator validates, documents,
+   stages only intended paths and commits on the feature branch. Report remaining gaps.
+
+Use `opencode run --pure --agent muse-coder --model
+opencode/muse-spark-1.3-contributor-free --file /absolute/path/to/handoff.md
+"Implement the attached task"` (one shell command). Use `--session ID` only for
+coder repairs. Replace agent with `muse-reviewer` and attach a review packet for review.
+Never reuse a coder session for review. Do not use `--continue` for reviews. Store packets/logs under pdf-craft-output/agents/.
+
+Cost controls: one active worker; bounded handoffs and reports (roughly 400 words);
+logs on disk, not whole transcripts in chat; targeted tests once, repeat only after
+changes/failures; reuse plans; no competing solutions or recursive delegation.
+Never silently substitute paid models or route Astra/Luna through OpenRouter.
+On auth/quota failures pause that route; honor retry hints, avoid repeated model
+switches. Model listings are not proof of account access or unlimited free usage.
+Do not change the selected model mid-turn. Launch the next coordinator with
+`codex --profile luna-orchestrator` or select Luna in the client.
+Operational commands and cost notes: [agent workflow](references/agent-workflow.md).
+<!-- END PROJECT AGENT WORKFLOW -->
+
 # Agent 工作流
 
 pdf-craft 是一个把扫描书籍 PDF 转换为 Markdown 或 EPUB 的 Python 库。本仓库使用 `~/.agents/skills/vibecoding` 作为通用维护工作法。本文件只记录 pdf-craft 特有的边界和按需阅读路由。
