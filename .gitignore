@@ -24,6 +24,10 @@ downloads/
 eggs/
 .eggs/
 lib/
+# The frontend is a separately tracked TypeScript package; its `src/lib`
+# directory is source code, not a Python build artifact.
+!/frontend/src/lib/
+!/frontend/src/lib/**
 lib64/
 parts/
 sdist/
