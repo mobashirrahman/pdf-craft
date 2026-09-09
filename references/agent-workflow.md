@@ -1,39 +1,94 @@
 # Agent workflow operations
 
-Configured 2026-09-08. Project policy lives in AGENTS.md; OpenCode roles live in
-.opencode/agents/. The local Codex architect definition uses gpt-6-astra with
-medium reasoning. The local luna-orchestrator profile selects gpt-5.6-luna,
-medium reasoning; start a new coordinator with `codex --profile luna-orchestrator`.
-A profile does not change an already-running chat. This is a coordinator-driven
-workflow, not an unattended scheduler.
+Reconfigured 2026-09-08. Policy lives in AGENTS.md. Claude Code roles live in
+.claude/agents/; OpenCode roles live in .opencode/agents/. This is a
+coordinator-driven workflow, not an unattended scheduler.
 
-Use one architect plan, a bounded coder task, and a fresh review session.
-Keep packets and complete logs in pdf-craft-output/agents/. Supply owned paths,
-acceptance checks and constraints; review actual diffs and test evidence.
+## Roles and cost basis
+
+| Role | Surface | Model | Cost |
+| --- | --- | --- | --- |
+| coordinator | Claude Code | Sonnet 5 | plan allowance, largest share |
+| architect | Claude Code subagent | Opus 5 | plan allowance, one shot |
+| reviewer | Claude Code subagent | Sonnet 5 | plan allowance, one shot |
+| coder | OpenCode `muse-coder` | muse-spark-1.3-contributor-free | free |
+| investigator, tests, lint | OpenCode `muse-investigator` | muse-spark-1.3-contributor-free | free |
+| extra review pass | OpenCode `muse-reviewer` | muse-spark-1.3-contributor-free | free |
+
+Published per-million token rates, used here as a proxy for how fast each model
+consumes the plan allowance: Fable 5.1 $10/$50, Opus 5 $5/$25, Sonnet 4.5 $3/$15,
+Sonnet 5 $2/$10, Haiku 4.5 $1/$5, Muse free. Fable is the most expensive model
+available, not a cheap tier; do not use it for routine work. Sonnet 5 is both
+newer and cheaper than Sonnet 4.5, so there is no reason to pin 4.5.
+
+The account is Claude Pro with extra usage disabled: hitting the cap stops work
+rather than billing overage. An OpenRouter API key is configured in OpenCode and
+spends real money; the Anthropic models it lists are a paid duplicate of models
+already reachable through Claude Code. Do not route roles through it.
+
+Budget shape for one medium task: the coordinator is roughly three quarters of
+the cost, because its context is re-sent every turn. Architect and reviewer are
+bounded single shots and together are about a quarter. Reducing coordinator
+context is therefore worth more than downgrading a specialist.
+
+## Routing rule
+
+Give Muse anything with a machine-checkable acceptance criterion: codebase
+investigation, targeted tests, lint, mechanical refactors, draft tests against a
+supplied spec. Keep on Claude anything whose check is judgment: architecture,
+security, final validation before a commit, and review of Muse's own output.
+
+Delegating investigation to `muse-investigator` matters most: a 400-word report
+replaces tens of thousands of tokens of source that would otherwise sit in
+coordinator context for the rest of the session.
+
+## Commands
 
 ```bash
-opencode run --pure --agent muse-coder --model opencode/muse-spark-1.3-contributor-free --file /absolute/path/to/handoff.md "Implement the attached task"
-opencode run --pure --agent muse-reviewer --model opencode/muse-spark-1.3-contributor-free --file /absolute/path/to/review.md "Review the attached changes"
+opencode run --pure --agent muse-coder --model opencode/muse-spark-1.3-contributor-free "Implement the attached task" --file /absolute/path/to/handoff.md
+opencode run --pure --agent muse-investigator --model opencode/muse-spark-1.3-contributor-free "Answer the attached question" --file /absolute/path/to/question.md
+opencode run --pure --agent muse-reviewer --model opencode/muse-spark-1.3-contributor-free "Review the attached changes" --file /absolute/path/to/review.md
 ```
 
+`--file` is a yargs array option: placed before the message it greedily
+consumes the message text as a filename ("File not found: Say hello") and
+the run then silently ignores the attachment. The message positional must
+come first. Confirmed 2026-09-09.
+
 Save the returned session ID. Use `--session ID` for coder repairs; never reuse
-the coder's session for review. Reviewer shell and edit permissions are denied.
-Same-model review provides separate context but can share the coder's blind spots.
-If the current Codex surface cannot invoke the architect, report that limitation;
-do not substitute an OpenRouter paid model.
+the coder's session for review. Keep packets and complete logs in
+pdf-craft-output/agents/. Supply owned paths, acceptance checks and constraints;
+review actual diffs and test evidence.
 
-## Usage controls
+The Claude `architect` and `reviewer` subagents are invoked from the coordinator
+by name. Both are limited to Read, Grep and Glob, so the coordinator captures the
+diff and test evidence for the reviewer.
 
-- Begin a new Luna thread with a short handoff when this conversation grows large.
-- Keep architecture to one compact plan; skip that phase for trivial fixes.
-- Let Muse do bounded investigation, implementation and targeted tests.
-- Keep reports around 400 words and full logs out of coordinator context.
-- Use one worker, reuse its session for a focused repair, avoid recursive teams.
-- Disable unused connectors; avoid Fast mode when preserving allowance matters.
-- Check Codex `/status` or the usage dashboard. Offloading work does not remove
-  Codex costs for Luna coordination and Astra planning, or guarantee a five-hour
-  window will last. OpenCode/OpenRouter quotas are separate.
-- Never silently fall back to a paid model. Stop on authentication/quota failures.
+## Fallback
+
+The Codex `luna-orchestrator` profile and `~/.codex/agents/architect.toml`
+(gpt-6-astra) remain configured and draw on a separate allowance. Use them when
+the Claude plan limit is tight; start with `codex --profile luna-orchestrator`.
+A profile does not change an already-running chat. Note that
+`~/.codex/config.toml` sets `model_reasoning_effort = "xhigh"` globally, which is
+expensive for any Codex thread; lower it to medium before routine fallback use.
+Never silently fall back to a paid model. Stop on authentication/quota failures.
+
+## Local validation
+
+Both OpenCode role definitions are recognized, and the free Muse route was
+confirmed live on 2026-09-08 with a `--pure` round trip.
+
+The first live check stalled in OpenCode's internal Git snapshot `add --all`.
+Project opencode.json disables snapshots to avoid indexing the large collection.
+OpenCode file undo is therefore unavailable; preserve existing changes and use
+scoped Git commits. See [snapshot configuration](https://dev.opencode.ai/docs/config).
+
+Coder and investigator shell access is broad: prompt constraints are operating
+instructions, not a security sandbox. Reviewer edit/bash/task denial is enforced
+by OpenCode permissions. No role should be treated as an OS isolation boundary.
+Same-model review provides separate context but shares the coder's blind spots,
+which is why the gating review runs on Claude.
 
 The local model catalogue also lists OpenCode MiMo V2.5 Free, Nemotron free
 variants and OpenRouter `openrouter/free`, `cohere/north-mini-code:free`, and
@@ -47,19 +102,3 @@ limits can change. Contributor/free routes have provider-specific data terms.
 - [OpenCode Zen model IDs, pricing and data terms](https://opencode.ai/docs/zen/)
 - [OpenRouter limits](https://openrouter.ai/docs/api-reference/limits)
 - [Codex pricing and usage-saving guidance](https://developers.openai.com/codex/pricing/)
-
-## Local validation
-
-OpenCode recognizes both role definitions; the Luna profile parses as TOML.
-The first live check stalled in OpenCode's internal Git snapshot `add --all`.
-Project opencode.json disables snapshots to avoid indexing the large collection.
-OpenCode file undo is therefore unavailable; preserve existing changes and use
-scoped Git commits. See [snapshot configuration](https://dev.opencode.ai/docs/config).
-
-The free Muse reviewer completed a live read-only configuration review. Its
-suggestions about removing deployment instructions or requiring duplicate model
-defaults were not adopted: deployment is explicitly authorized, and named agents
-plus explicit CLI model selection are intentional. The fresh-review rule was
-made explicit. Coder shell access is broad: prompt constraints are operating
-instructions, not a security sandbox. Reviewer edit/bash/task denial is enforced
-by OpenCode permissions. Neither role should be treated as an OS isolation boundary.
