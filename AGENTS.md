@@ -5,9 +5,11 @@ Claude Code is the coordinator. Run it on Sonnet (`/model sonnet`); the
 coordinator replays its context on every turn and is the largest share of the
 budget, so keep Opus for coordination only when a task genuinely needs it.
 Roles: `architect` and `reviewer` are Claude Code subagents in `.claude/agents/`;
-`muse-coder`, `muse-investigator` and `muse-reviewer` are free OpenCode roles in
-`.opencode/agents/`. These instructions apply only to the coordinator; delegated
-roles never spawn teams.
+`muse-coder`, `muse-investigator`, `muse-reviewer`, `glm-coder`, `glm-investigator`
+and `glm-reviewer` are free OpenCode roles in `.opencode/agents/` — two
+independent free backends (Muse Spark and GLM-5.3 via TokenRouter), same
+role split, same guardrails. These instructions apply only to the
+coordinator; delegated roles never spawn teams.
 
 1. Gather a compact evidence packet: objective, relevant files, current behavior,
    constraints, acceptance checks. Reuse existing plans where applicable.
@@ -20,6 +22,11 @@ roles never spawn teams.
    `opencode/muse-spark-1.3-contributor-free`. Supply the plan, owned files and checks.
    Let the bounded task finish; do not edit its files concurrently or interrupt
    merely because output is quiet. Save its session ID and full output on disk.
+   When a plan has two or more genuinely independent tasks (disjoint owned
+   files, no shared state), dispatch one to `muse-coder` and one to
+   `glm-coder` (`tokenrouter/z-ai/glm-5.3-free`) in parallel rather than
+   serially — both are free, so this only costs wall-clock time, not money.
+   Never split one task's file scope across both backends.
 4. Run tests and lint through `muse-investigator`, which reports pass/fail and
    failing assertions rather than full logs. Validate anything that gates a
    commit yourself: a free model attesting to its own work is not evidence.
@@ -39,20 +46,30 @@ coder repairs. Replace agent with `muse-investigator` or `muse-reviewer` and
 attach the matching packet. Never reuse a coder session for review. Do not use
 `--continue` for reviews. Store packets/logs under pdf-craft-output/agents/.
 
-Routing rule: give Muse anything with a machine-checkable acceptance criterion
-(investigation, tests, lint, mechanical refactors, draft tests). Keep on Claude
+Routing rule: give a free backend (Muse or GLM) anything with a machine-checkable
+acceptance criterion (investigation, tests, lint, mechanical refactors, draft
+tests); split independent packets across both to run in parallel. Keep on Claude
 anything whose check is judgment: architecture, security, final pre-commit
-validation, and review of Muse's own code.
+validation, and review of a free backend's own code — same-model review shares
+that model's blind spots regardless of which free backend produced the change.
 
-Cost controls: one active worker; bounded handoffs and reports (roughly 400 words);
-logs on disk, not whole transcripts in chat; targeted tests once, repeat only after
-changes/failures; reuse plans; no competing solutions or recursive delegation.
+Cost controls: at most one active worker per free backend (so at most two
+workers total, on disjoint file scopes); bounded handoffs and reports (roughly
+400 words); logs on disk, not whole transcripts in chat; targeted tests once,
+repeat only after changes/failures; reuse plans; no competing solutions or
+recursive delegation.
 Never silently substitute paid models. Do not route roles through OpenRouter:
 an OpenRouter key is configured and spends real money, while Claude subagents and
-Muse do not. Prefer Sonnet over Opus, and never Fable, for routine work — Fable
-5.1 bills at 2x Opus and 5x Sonnet. On auth/quota failures pause that route;
-honor retry hints, avoid repeated model switches. Model listings are not proof of
-account access or unlimited free usage. Do not change the selected model mid-turn.
+the free backends do not. The TokenRouter key configured for `glm-coder`/
+`glm-investigator`/`glm-reviewer` is scoped to exactly one model,
+`z-ai/glm-5.3-free` ($0/$0) — TokenRouter is otherwise a paid marketplace billed
+against a wallet balance, so never add another TokenRouter model to
+`opencode.json`'s provider block or pass one on the command line without
+confirming its price first. Prefer Sonnet over Opus, and never Fable, for
+routine work — Fable 5.1 bills at 2x Opus and 5x Sonnet. On auth/quota failures
+pause that route; honor retry hints, avoid repeated model switches. Model
+listings are not proof of account access or unlimited free usage. Do not change
+the selected model mid-turn.
 The Codex `luna-orchestrator` profile and `architect.toml` remain available as a
 fallback on a separate allowance when the Claude plan limit is tight.
 Operational commands and cost notes: [agent workflow](references/agent-workflow.md).

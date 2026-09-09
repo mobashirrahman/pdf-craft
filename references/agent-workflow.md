@@ -12,19 +12,40 @@ coordinator-driven workflow, not an unattended scheduler.
 | architect | Claude Code subagent | Opus 5 | plan allowance, one shot |
 | reviewer | Claude Code subagent | Sonnet 5 | plan allowance, one shot |
 | coder | OpenCode `muse-coder` | muse-spark-1.3-contributor-free | free |
+| coder (parallel backend) | OpenCode `glm-coder` | tokenrouter/z-ai/glm-5.3-free | free |
 | investigator, tests, lint | OpenCode `muse-investigator` | muse-spark-1.3-contributor-free | free |
+| investigator (parallel backend) | OpenCode `glm-investigator` | tokenrouter/z-ai/glm-5.3-free | free |
 | extra review pass | OpenCode `muse-reviewer` | muse-spark-1.3-contributor-free | free |
+| extra review pass (parallel backend) | OpenCode `glm-reviewer` | tokenrouter/z-ai/glm-5.3-free | free |
 
 Published per-million token rates, used here as a proxy for how fast each model
 consumes the plan allowance: Fable 5.1 $10/$50, Opus 5 $5/$25, Sonnet 4.5 $3/$15,
-Sonnet 5 $2/$10, Haiku 4.5 $1/$5, Muse free. Fable is the most expensive model
-available, not a cheap tier; do not use it for routine work. Sonnet 5 is both
-newer and cheaper than Sonnet 4.5, so there is no reason to pin 4.5.
+Sonnet 5 $2/$10, Haiku 4.5 $1/$5, Muse free, GLM-5.3 via TokenRouter free (this
+one model only — see below). Fable is the most expensive model available, not a
+cheap tier; do not use it for routine work. Sonnet 5 is both newer and cheaper
+than Sonnet 4.5, so there is no reason to pin 4.5.
 
 The account is Claude Pro with extra usage disabled: hitting the cap stops work
 rather than billing overage. An OpenRouter API key is configured in OpenCode and
 spends real money; the Anthropic models it lists are a paid duplicate of models
 already reachable through Claude Code. Do not route roles through it.
+
+TokenRouter (tokenrouter.com — unrelated to the similarly-named tokenrouter.io)
+is configured the same way: a paid marketplace billed against a wallet balance.
+`opencode.json`'s `provider.tokenrouter.models` block declares exactly one
+model, `z-ai/glm-5.3-free` ($0.00/$0.00, confirmed 2026-09-09), and the
+`glm-*` agents pin that model explicitly. Never add another TokenRouter model
+to that block, and never pass a different TokenRouter model ID on the command
+line, without checking its price on the TokenRouter console first — everything
+else there costs real money from the configured `TOKENROUTER_API_KEY` (stored
+in the gitignored project `.env`, never in `opencode.json` or committed
+config). TokenRouter also offers to become Claude Code's own
+`ANTHROPIC_BASE_URL` (proxying Sonnet/Opus/Haiku through their marketplace
+instead of the Claude plan) — deliberately not configured; the coordinator
+stays on direct Anthropic billing. Two independent free backends means two
+independent rate limits: split genuinely independent packets across
+`muse-coder`+`glm-coder` (or the investigator/reviewer pairs) to run in
+parallel, never to shard one task's file scope across both.
 
 Budget shape for one medium task: the coordinator is roughly three quarters of
 the cost, because its context is re-sent every turn. Architect and reviewer are
@@ -33,14 +54,17 @@ context is therefore worth more than downgrading a specialist.
 
 ## Routing rule
 
-Give Muse anything with a machine-checkable acceptance criterion: codebase
-investigation, targeted tests, lint, mechanical refactors, draft tests against a
-supplied spec. Keep on Claude anything whose check is judgment: architecture,
-security, final validation before a commit, and review of Muse's own output.
+Give a free backend (Muse or GLM) anything with a machine-checkable acceptance
+criterion: codebase investigation, targeted tests, lint, mechanical refactors,
+draft tests against a supplied spec. Keep on Claude anything whose check is
+judgment: architecture, security, final validation before a commit, and review
+of a free backend's own output — same-model review shares that model's blind
+spots no matter which free backend wrote the change.
 
-Delegating investigation to `muse-investigator` matters most: a 400-word report
-replaces tens of thousands of tokens of source that would otherwise sit in
-coordinator context for the rest of the session.
+Delegating investigation matters most: a 400-word report replaces tens of
+thousands of tokens of source that would otherwise sit in coordinator context
+for the rest of the session. When two investigations are independent, run one
+on `muse-investigator` and one on `glm-investigator` at the same time.
 
 ## Commands
 
@@ -48,6 +72,13 @@ coordinator context for the rest of the session.
 opencode run --pure --agent muse-coder --model opencode/muse-spark-1.3-contributor-free "Implement the attached task" --file /absolute/path/to/handoff.md
 opencode run --pure --agent muse-investigator --model opencode/muse-spark-1.3-contributor-free "Answer the attached question" --file /absolute/path/to/question.md
 opencode run --pure --agent muse-reviewer --model opencode/muse-spark-1.3-contributor-free "Review the attached changes" --file /absolute/path/to/review.md
+
+# GLM backend: same shape, requires TOKENROUTER_API_KEY in the environment
+# (set -a; source .env; set +a   -- before the opencode call, since OpenCode
+# does not load the project .env itself).
+opencode run --pure --agent glm-coder --model tokenrouter/z-ai/glm-5.3-free "Implement the attached task" --file /absolute/path/to/handoff.md
+opencode run --pure --agent glm-investigator --model tokenrouter/z-ai/glm-5.3-free "Answer the attached question" --file /absolute/path/to/question.md
+opencode run --pure --agent glm-reviewer --model tokenrouter/z-ai/glm-5.3-free "Review the attached changes" --file /absolute/path/to/review.md
 ```
 
 `--file` is a yargs array option: placed before the message it greedily
@@ -77,7 +108,11 @@ Never silently fall back to a paid model. Stop on authentication/quota failures.
 ## Local validation
 
 Both OpenCode role definitions are recognized, and the free Muse route was
-confirmed live on 2026-09-08 with a `--pure` round trip.
+confirmed live on 2026-09-08 with a `--pure` round trip. The `glm-*` roles and
+the `tokenrouter` custom provider (`opencode.json` → `@ai-sdk/openai-compatible`,
+`baseURL: https://api.tokenrouter.com/v1`) were confirmed live on 2026-09-09:
+a `--pure` round trip through `glm-investigator` ran a real shell command
+against this repository and reported a correct, verified answer.
 
 The first live check stalled in OpenCode's internal Git snapshot `add --all`.
 Project opencode.json disables snapshots to avoid indexing the large collection.
@@ -99,6 +134,8 @@ limits can change. Contributor/free routes have provider-specific data terms.
 ## Official references
 
 - [OpenCode agents and permissions](https://opencode.ai/docs/agents/)
+- [OpenCode custom providers](https://opencode.ai/docs/providers/)
 - [OpenCode Zen model IDs, pricing and data terms](https://opencode.ai/docs/zen/)
 - [OpenRouter limits](https://openrouter.ai/docs/api-reference/limits)
+- [TokenRouter GLM-5.3-free pricing](https://www.tokenrouter.com/models/z-ai/glm-5.3-free/)
 - [Codex pricing and usage-saving guidance](https://developers.openai.com/codex/pricing/)
