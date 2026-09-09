@@ -18,6 +18,23 @@
           }
         }
       }
+    },
+    "bai": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "B.AI",
+      "options": {
+        "baseURL": "https://api.b.ai/v1",
+        "apiKey": "{env:BAI_API_KEY}"
+      },
+      "models": {
+        "glm-5.3-flash": {
+          "name": "GLM-5.3 Flash (via B.AI, metered -- not pinned free)",
+          "limit": {
+            "context": 200000,
+            "output": 131072
+          }
+        }
+      }
     }
   }
 }

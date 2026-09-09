@@ -13,17 +13,22 @@ coordinator-driven workflow, not an unattended scheduler.
 | reviewer | Claude Code subagent | Sonnet 5 | plan allowance, one shot |
 | coder | OpenCode `muse-coder` | muse-spark-1.3-contributor-free | free |
 | coder (parallel backend) | OpenCode `glm-coder` | tokenrouter/z-ai/glm-5.3-free | free |
+| coder (3rd parallel backend) | OpenCode `bai-coder` | bai/glm-5.3-flash | metered, prepaid |
 | investigator, tests, lint | OpenCode `muse-investigator` | muse-spark-1.3-contributor-free | free |
 | investigator (parallel backend) | OpenCode `glm-investigator` | tokenrouter/z-ai/glm-5.3-free | free |
+| investigator (3rd parallel backend) | OpenCode `bai-investigator` | bai/glm-5.3-flash | metered, prepaid |
 | extra review pass | OpenCode `muse-reviewer` | muse-spark-1.3-contributor-free | free |
 | extra review pass (parallel backend) | OpenCode `glm-reviewer` | tokenrouter/z-ai/glm-5.3-free | free |
+| extra review pass (3rd parallel backend) | OpenCode `bai-reviewer` | bai/glm-5.3-flash | metered, prepaid |
 
 Published per-million token rates, used here as a proxy for how fast each model
 consumes the plan allowance: Fable 5.1 $10/$50, Opus 5 $5/$25, Sonnet 4.5 $3/$15,
 Sonnet 5 $2/$10, Haiku 4.5 $1/$5, Muse free, GLM-5.3 via TokenRouter free (this
-one model only — see below). Fable is the most expensive model available, not a
-cheap tier; do not use it for routine work. Sonnet 5 is both newer and cheaper
-than Sonnet 4.5, so there is no reason to pin 4.5.
+one model only — see below), GLM-5.3 Flash via B.AI $0.075/$0.25 (metered,
+prepaid balance — see below, not free despite the same underlying model family).
+Fable is the most expensive model available, not a cheap tier; do not use it
+for routine work. Sonnet 5 is both newer and cheaper than Sonnet 4.5, so there
+is no reason to pin 4.5.
 
 The account is Claude Pro with extra usage disabled: hitting the cap stops work
 rather than billing overage. An OpenRouter API key is configured in OpenCode and
@@ -42,10 +47,35 @@ in the gitignored project `.env`, never in `opencode.json` or committed
 config). TokenRouter also offers to become Claude Code's own
 `ANTHROPIC_BASE_URL` (proxying Sonnet/Opus/Haiku through their marketplace
 instead of the Claude plan) — deliberately not configured; the coordinator
-stays on direct Anthropic billing. Two independent free backends means two
-independent rate limits: split genuinely independent packets across
-`muse-coder`+`glm-coder` (or the investigator/reviewer pairs) to run in
-parallel, never to shard one task's file scope across both.
+stays on direct Anthropic billing.
+
+B.AI (b.ai, `provider.bai` in `opencode.json`) is a third backend, added
+2026-09-09. It is a prepaid-credit marketplace (1 USD = 1,000,000 credits,
+crypto top-ups) fronting 40+ models under codenames — notably `gpt-5.6-luna`,
+`gpt-5.6-terra`, `gpt-5.6-sol` and `gpt-6-astra`, the exact names already used
+by this repo's Codex `luna-orchestrator` setup, strongly suggesting that setup
+already runs through B.AI or an identical white-label reseller rather than
+raw OpenAI billing — unconfirmed, not changed, just noted. Only
+`glm-5.3-flash` is declared in the provider's `models` block; per B.AI's own
+pricing page it costs $0.075/$0.25 per million input/output tokens, unlike
+TokenRouter's pinned model. The user has confirmed using it for routine work
+regardless — it is currently funded — but it must never be described as free
+in a report or commit message, and its console balance is worth checking
+before a large batch.
+
+An `OPENROUTER_FREE_API_KEY` is stored in `.env` but **not** wired into
+`opencode.json`: on 2026-09-09 OpenRouter's own API rejected the free slug the
+user asked for (`z-ai/glm-5.3-flash:free` → "This model is unavailable for
+free... use this slug instead: z-ai/glm-5.3-flash", the paid one), most likely
+a lapsed promotion (a limited-time 50% discount on this model was documented
+as ending 2026-09-09 16:00 UTC). Re-check before wiring this one up; do not
+silently fall back to the paid slug.
+
+Three independent backends means three independent rate limits: split
+genuinely independent packets across `muse-coder`+`glm-coder`(+`bai-coder`),
+or the investigator/reviewer equivalents, to run in parallel — never to shard
+one task's file scope across backends. Prefer the two free backends before
+reaching for the metered one.
 
 Budget shape for one medium task: the coordinator is roughly three quarters of
 the cost, because its context is re-sent every turn. Architect and reviewer are
@@ -54,17 +84,19 @@ context is therefore worth more than downgrading a specialist.
 
 ## Routing rule
 
-Give a free backend (Muse or GLM) anything with a machine-checkable acceptance
-criterion: codebase investigation, targeted tests, lint, mechanical refactors,
-draft tests against a supplied spec. Keep on Claude anything whose check is
-judgment: architecture, security, final validation before a commit, and review
-of a free backend's own output — same-model review shares that model's blind
-spots no matter which free backend wrote the change.
+Give a delegate backend (Muse, GLM/TokenRouter, or GLM/B.AI) anything with a
+machine-checkable acceptance criterion: codebase investigation, targeted
+tests, lint, mechanical refactors, draft tests against a supplied spec. Keep
+on Claude anything whose check is judgment: architecture, security, final
+validation before a commit, and review of a delegate's own output —
+same-model review shares that model's blind spots no matter which backend
+wrote the change.
 
 Delegating investigation matters most: a 400-word report replaces tens of
 thousands of tokens of source that would otherwise sit in coordinator context
 for the rest of the session. When two investigations are independent, run one
-on `muse-investigator` and one on `glm-investigator` at the same time.
+on `muse-investigator` and one on `glm-investigator` at the same time; add
+`bai-investigator` as a third lane for a third independent question.
 
 ## Commands
 
@@ -79,6 +111,12 @@ opencode run --pure --agent muse-reviewer --model opencode/muse-spark-1.3-contri
 opencode run --pure --agent glm-coder --model tokenrouter/z-ai/glm-5.3-free "Implement the attached task" --file /absolute/path/to/handoff.md
 opencode run --pure --agent glm-investigator --model tokenrouter/z-ai/glm-5.3-free "Answer the attached question" --file /absolute/path/to/question.md
 opencode run --pure --agent glm-reviewer --model tokenrouter/z-ai/glm-5.3-free "Review the attached changes" --file /absolute/path/to/review.md
+
+# B.AI backend (metered, not free -- see above): same shape, requires
+# BAI_API_KEY in the environment the same way.
+opencode run --pure --agent bai-coder --model bai/glm-5.3-flash "Implement the attached task" --file /absolute/path/to/handoff.md
+opencode run --pure --agent bai-investigator --model bai/glm-5.3-flash "Answer the attached question" --file /absolute/path/to/question.md
+opencode run --pure --agent bai-reviewer --model bai/glm-5.3-flash "Review the attached changes" --file /absolute/path/to/review.md
 ```
 
 `--file` is a yargs array option: placed before the message it greedily
@@ -112,7 +150,10 @@ confirmed live on 2026-09-08 with a `--pure` round trip. The `glm-*` roles and
 the `tokenrouter` custom provider (`opencode.json` → `@ai-sdk/openai-compatible`,
 `baseURL: https://api.tokenrouter.com/v1`) were confirmed live on 2026-09-09:
 a `--pure` round trip through `glm-investigator` ran a real shell command
-against this repository and reported a correct, verified answer.
+against this repository and reported a correct, verified answer. The `bai-*`
+roles and the `bai` provider were confirmed live the same day the same way
+(first call took ~90s — cold start, not a fault; a 40s timeout is too tight
+for this backend's first request in a session).
 
 The first live check stalled in OpenCode's internal Git snapshot `add --all`.
 Project opencode.json disables snapshots to avoid indexing the large collection.
@@ -138,4 +179,5 @@ limits can change. Contributor/free routes have provider-specific data terms.
 - [OpenCode Zen model IDs, pricing and data terms](https://opencode.ai/docs/zen/)
 - [OpenRouter limits](https://openrouter.ai/docs/api-reference/limits)
 - [TokenRouter GLM-5.3-free pricing](https://www.tokenrouter.com/models/z-ai/glm-5.3-free/)
+- [B.AI pricing and usage](https://docs.b.ai/llmservice/pricing-and-usage/)
 - [Codex pricing and usage-saving guidance](https://developers.openai.com/codex/pricing/)
