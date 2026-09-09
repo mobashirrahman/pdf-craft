@@ -35,6 +35,23 @@
           }
         }
       }
+    },
+    "orcarouter": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "OrcaRouter",
+      "options": {
+        "baseURL": "https://api.orcarouter.ai/v1",
+        "apiKey": "{env:ORCAROUTER_API_KEY}"
+      },
+      "models": {
+        "z-ai/glm-5.3-flash-free": {
+          "name": "GLM-5.3 Flash (free, via OrcaRouter)",
+          "limit": {
+            "context": 1000000,
+            "output": 131072
+          }
+        }
+      }
     }
   }
 }

@@ -5,13 +5,14 @@ Claude Code is the coordinator. Run it on Sonnet (`/model sonnet`); the
 coordinator replays its context on every turn and is the largest share of the
 budget, so keep Opus for coordination only when a task genuinely needs it.
 Roles: `architect` and `reviewer` are Claude Code subagents in `.claude/agents/`;
-`muse-*`, `glm-*` and `bai-*` (coder/investigator/reviewer each) are OpenCode
-roles in `.opencode/agents/` — three independent backends, same role split,
-same guardrails. Muse Spark and GLM-5.3 via TokenRouter are genuinely free
-($0/$0, pinned models). GLM-5.3 Flash via B.AI (`bai-*`) is metered
+`muse-*`, `glm-*`, `bai-*` and `orca-*` (coder/investigator/reviewer each) are
+OpenCode roles in `.opencode/agents/` — four independent backends, same role
+split, same guardrails. Muse Spark, GLM-5.3 via TokenRouter, and GLM-5.3 Flash
+via OrcaRouter (`orca-*`) are genuinely free ($0, pinned models, rate-limited
+rather than billed). GLM-5.3 Flash via B.AI (`bai-*`) is metered
 (~$0.075/$0.25 per million tokens, prepaid balance) — currently funded and
 approved for routine use per the user, but it is not free the way the other
-two are; do not describe it as free in a report or commit message, and check
+three are; do not describe it as free in a report or commit message, and check
 the B.AI console balance before a large batch. These instructions apply only
 to the coordinator; delegated roles never spawn teams.
 
@@ -28,10 +29,11 @@ to the coordinator; delegated roles never spawn teams.
    merely because output is quiet. Save its session ID and full output on disk.
    When a plan has two or more genuinely independent tasks (disjoint owned
    files, no shared state), dispatch across backends in parallel rather than
-   serially — `muse-coder` and `glm-coder` (`tokenrouter/z-ai/glm-5.3-free`)
-   cost only wall-clock time, not money; add `bai-coder` (`bai/glm-5.3-flash`)
-   as a third parallel lane when there is a third independent task, mindful
-   that lane is metered. Never split one task's file scope across backends.
+   serially. `muse-coder`, `glm-coder` (`tokenrouter/z-ai/glm-5.3-free`) and
+   `orca-coder` (`orcarouter/z-ai/glm-5.3-flash-free`) cost only wall-clock
+   time, not money — use all three before reaching for `bai-coder`
+   (`bai/glm-5.3-flash`), which is metered. Never split one task's file scope
+   across backends.
 4. Run tests and lint through `muse-investigator`, which reports pass/fail and
    failing assertions rather than full logs. Validate anything that gates a
    commit yourself: a free model attesting to its own work is not evidence.
@@ -51,16 +53,16 @@ coder repairs. Replace agent with `muse-investigator` or `muse-reviewer` and
 attach the matching packet. Never reuse a coder session for review. Do not use
 `--continue` for reviews. Store packets/logs under pdf-craft-output/agents/.
 
-Routing rule: give a delegate backend (Muse, GLM/TokenRouter, or GLM/B.AI)
-anything with a machine-checkable acceptance criterion (investigation, tests,
-lint, mechanical refactors, draft tests); split independent packets across
-backends to run in parallel, preferring the two free ones before reaching for
-the metered one. Keep on Claude anything whose check is judgment: architecture,
-security, final pre-commit validation, and review of a delegate's own code —
-same-model review shares that model's blind spots regardless of which backend
-produced the change.
+Routing rule: give a delegate backend (Muse, GLM/TokenRouter, GLM/OrcaRouter,
+or GLM/B.AI) anything with a machine-checkable acceptance criterion
+(investigation, tests, lint, mechanical refactors, draft tests); split
+independent packets across backends to run in parallel, preferring the three
+free ones before reaching for the metered one. Keep on Claude anything whose
+check is judgment: architecture, security, final pre-commit validation, and
+review of a delegate's own code — same-model review shares that model's blind
+spots regardless of which backend produced the change.
 
-Cost controls: at most one active worker per backend (so at most three workers
+Cost controls: at most one active worker per backend (so at most four workers
 total, on disjoint file scopes); bounded handoffs and reports (roughly 400
 words); logs on disk, not whole transcripts in chat; targeted tests once,
 repeat only after changes/failures; reuse plans; no competing solutions or
@@ -69,12 +71,18 @@ Never silently substitute paid models. Do not route roles through OpenRouter:
 an OpenRouter key is configured and spends real money, while Claude subagents
 and the free backends do not. The TokenRouter key configured for `glm-coder`/
 `glm-investigator`/`glm-reviewer` is scoped to exactly one model,
-`z-ai/glm-5.3-free` ($0/$0); the B.AI key configured for `bai-coder`/
-`bai-investigator`/`bai-reviewer` is scoped to exactly one model,
-`glm-5.3-flash` (metered, ~$0.075/$0.25 per million tokens, prepaid). Both
-services are otherwise paid marketplaces billed against a wallet balance, so
-never add another model to either one's `opencode.json` provider block, or
-pass one on the command line, without confirming its price first. A separate
+`z-ai/glm-5.3-free` ($0/$0); the OrcaRouter key configured for `orca-coder`/
+`orca-investigator`/`orca-reviewer` is scoped to exactly one model,
+`z-ai/glm-5.3-flash-free` (free, rate-limited rather than billed — "never
+charged to your balance" per OrcaRouter's own model page); the B.AI key
+configured for `bai-coder`/`bai-investigator`/`bai-reviewer` is scoped to
+exactly one model, `glm-5.3-flash` (metered, ~$0.075/$0.25 per million tokens,
+prepaid). All three services are otherwise paid marketplaces (OrcaRouter:
+200+ models, zero markup on provider rates but still billed; B.AI: prepaid
+credit balance), so never add another model to any of their `opencode.json`
+provider blocks, or pass one on the command line — including OrcaRouter's
+`orcarouter/auto` adaptive-routing alias, which can land on any of its 200+
+models including paid ones — without confirming its price first. A separate
 `OPENROUTER_FREE_API_KEY` is stored but unwired: OpenRouter's own API rejected
 `z-ai/glm-5.3-flash:free` as unavailable on 2026-09-09 (likely a lapsed
 promotion) — do not wire it up on the paid slug it suggested instead without
