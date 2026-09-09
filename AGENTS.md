@@ -5,15 +5,28 @@ Claude Code is the coordinator. Run it on Sonnet (`/model sonnet`); the
 coordinator replays its context on every turn and is the largest share of the
 budget, so keep Opus for coordination only when a task genuinely needs it.
 Roles: `architect` and `reviewer` are Claude Code subagents in `.claude/agents/`;
-`muse-*`, `glm-*`, `bai-*` and `orca-*` (coder/investigator/reviewer each) are
-OpenCode roles in `.opencode/agents/` — four independent backends, same role
-split, same guardrails. Muse Spark, GLM-5.3 via TokenRouter, and GLM-5.3 Flash
-via OrcaRouter (`orca-*`) are genuinely free ($0, pinned models, rate-limited
-rather than billed). GLM-5.3 Flash via B.AI (`bai-*`) is metered
-(~$0.075/$0.25 per million tokens, prepaid balance) — currently funded and
-approved for routine use per the user, but it is not free the way the other
-three are; do not describe it as free in a report or commit message, and check
-the B.AI console balance before a large batch. These instructions apply only
+`muse-*`, `glm-*`, `bai-*`, `orca-*`, `nemo-*`, `mimo-*`, `gem-*`, `groq-*`,
+`zai-*`, `lag-*`, `north-*`, `tium-*`, `sail-*`, `above-*`, `tiyuvta-*`
+and `nv-*` (coder/investigator/reviewer each) are
+OpenCode roles in `.opencode/agents/` — sixteen independent backends, same role
+split, same guardrails. Muse Spark, GLM-5.3 via TokenRouter, GLM-5.3 Flash
+via OrcaRouter (`orca-*`), Nemotron 3 Ultra (`nemo-*`) and MiMo-V2.5
+(`mimo-*`) — the last two via the existing OpenCode Zen login, no new key —
+Gemini 3.5 Flash (`gem-*`, free tier via Google AI Studio), GPT-OSS 120B
+(`groq-*`, free developer tier), GLM-4.5 Flash (`zai-*`, $0 via Z.ai),
+Laguna S 2.1 (`lag-*`, free coding agent via OpenRouter) and North Mini Code
+(`north-*`, free coding agent via OpenRouter)
+are genuinely free (pinned models, rate-limited rather than billed, the
+Zen ones for a limited time). GLM-5.3 Flash via B.AI (`bai-*`), GLM-5.3 Flash
+via Tium (`tium-*`), GLM-5.3 Flash via Sail (`sail-*`), GLM-5.3 Flash via
+above.dev (`above-*`, $10 credit, $2/day cap) and Ornith 1.5 35B via tiyuvta
+(`tiyuvta-*`) are metered — currently funded and
+approved for routine use per the user, but they are not free; do not describe
+them as free in a report or commit message, and check
+balances before a large batch. Nemotron 3 Ultra 550B via NVIDIA NIM (`nv-*`,
+paygo) is metered too — and note the stutter in its model ref
+(`nvidia/nvidia/...`): the first segment is our provider-block id, the rest
+is NVIDIA's own org-prefixed model id. These instructions apply only
 to the coordinator; delegated roles never spawn teams.
 
 1. Gather a compact evidence packet: objective, relevant files, current behavior,
@@ -22,26 +35,37 @@ to the coordinator; delegated roles never spawn teams.
    stay out of coordinator context; it returns paths, symbols and behavior.
 2. Ask the `architect` subagent for one concise plan whose tasks each name owned
    files and a machine-checkable acceptance check. Save the plan before coding.
-   Skip architecture for trivial unambiguous fixes.
+   Skip architecture for trivial unambiguous fixes. Architect runs on Sonnet
+   by default; request Opus explicitly only when the design judgment genuinely
+   needs it.
 3. Run OpenCode `muse-coder` using exactly
    `opencode/muse-spark-1.3-contributor-free`. Supply the plan, owned files and checks.
    Let the bounded task finish; do not edit its files concurrently or interrupt
    merely because output is quiet. Save its session ID and full output on disk.
    When a plan has two or more genuinely independent tasks (disjoint owned
    files, no shared state), dispatch across backends in parallel rather than
-   serially. `muse-coder`, `glm-coder` (`tokenrouter/z-ai/glm-5.3-free`) and
-   `orca-coder` (`orcarouter/z-ai/glm-5.3-flash-free`) cost only wall-clock
-   time, not money — use all three before reaching for `bai-coder`
-   (`bai/glm-5.3-flash`), which is metered. Never split one task's file scope
-   across backends.
+   serially. `muse-coder`, `glm-coder` (`tokenrouter/z-ai/glm-5.3-free`),
+   `orca-coder` (`orcarouter/z-ai/glm-5.3-flash-free`), `nemo-coder`
+   (`opencode/nemotron-3-ultra-free`), `mimo-coder`
+   (`opencode/mimo-v2.5-free`), `gem-coder` (`google/gemini-3.5-flash`),
+   `groq-coder` (`groq/openai/gpt-oss-120b`) and `zai-coder`
+   (`zai/glm-4.5-flash`), plus `lag-coder`
+   (`openrouter-free/poolside/laguna-s-2.1:free`) and `north-coder`
+   (`openrouter-free/cohere/north-mini-code:free`), cost only wall-clock
+   time, not money — use all ten free ones before reaching for a metered
+   backend (`bai-*`, `tium-*`, `sail-*`, `above-*`, `tiyuvta-*` or `nv-*`).
+   Never split one task's file scope
+   across backends. The two OpenRouter backends share one 50-request/day free
+   allowance on `OPENROUTER_FREE_API_KEY`, so spend it on coding tasks only.
 4. Run tests and lint through `muse-investigator`, which reports pass/fail and
    failing assertions rather than full logs. Validate anything that gates a
    commit yourself: a free model attesting to its own work is not evidence.
 5. Run the `reviewer` subagent with the actual scoped diff, relevant source and
    test evidence. Reviewer cannot edit or run commands; the coordinator captures
-   the diff and test evidence for it. Use `muse-reviewer` only as a free extra
+   the diff and    test evidence for it. Use `muse-reviewer` only as a free extra
    pass, never as the sole review of `muse-coder` output — same model, same
-   blind spots.
+   blind spots. The same applies to every other backend's reviewer on its own
+   backend's output.
 6. Return concrete defects to the SAME coder session for one focused repair;
    ask the reviewer to recheck affected changes. Coordinator validates, documents,
    stages only intended paths and commits on the feature branch. Report remaining gaps.
@@ -54,21 +78,30 @@ attach the matching packet. Never reuse a coder session for review. Do not use
 `--continue` for reviews. Store packets/logs under pdf-craft-output/agents/.
 
 Routing rule: give a delegate backend (Muse, GLM/TokenRouter, GLM/OrcaRouter,
-or GLM/B.AI) anything with a machine-checkable acceptance criterion
+GLM/B.AI, Nemotron/Zen, MiMo/Zen, Gemini/Google, Groq, GLM/Z.ai,
+Laguna/OpenRouter-free, North/OpenRouter-free, GLM/Tium, GLM/Sail,
+GLM/above.dev, Ornith/tiyuvta, or Nemotron/NVIDIA) anything with a machine-checkable acceptance criterion
 (investigation, tests, lint, mechanical refactors, draft tests); split
-independent packets across backends to run in parallel, preferring the three
-free ones before reaching for the metered one. Keep on Claude anything whose
+independent packets across backends to run in parallel, preferring the ten
+free ones before reaching for a metered one. Keep on Claude anything whose
 check is judgment: architecture, security, final pre-commit validation, and
 review of a delegate's own code — same-model review shares that model's blind
 spots regardless of which backend produced the change.
 
-Cost controls: at most one active worker per backend (so at most four workers
+Cost controls: at most one active worker per backend (so at most sixteen workers
 total, on disjoint file scopes); bounded handoffs and reports (roughly 400
 words); logs on disk, not whole transcripts in chat; targeted tests once,
 repeat only after changes/failures; reuse plans; no competing solutions or
 recursive delegation.
-Never silently substitute paid models. Do not route roles through OpenRouter:
-an OpenRouter key is configured and spends real money, while Claude subagents
+Quota discipline (mandatory): batch questions per turn — every turn replays
+full context, so three questions in one turn costs ~1/3 of three turns;
+/compact before context balloons, /clear between tasks with a 5-line handoff
+note (objective, files, pending, session IDs); utility subagents on Haiku;
+start heavy sessions right after the 5h reset, no parallel Claude sessions
+in one window.
+Never silently substitute paid models. Do not route roles through OpenRouter
+except on the two pinned `:free` slugs below: a paid OpenRouter key is also
+configured and spends real money, while Claude subagents
 and the free backends do not. The TokenRouter key configured for `glm-coder`/
 `glm-investigator`/`glm-reviewer` is scoped to exactly one model,
 `z-ai/glm-5.3-free` ($0/$0); the OrcaRouter key configured for `orca-coder`/
@@ -82,11 +115,40 @@ prepaid). All three services are otherwise paid marketplaces (OrcaRouter:
 credit balance), so never add another model to any of their `opencode.json`
 provider blocks, or pass one on the command line — including OrcaRouter's
 `orcarouter/auto` adaptive-routing alias, which can land on any of its 200+
-models including paid ones — without confirming its price first. A separate
-`OPENROUTER_FREE_API_KEY` is stored but unwired: OpenRouter's own API rejected
-`z-ai/glm-5.3-flash:free` as unavailable on 2026-09-09 (likely a lapsed
-promotion) — do not wire it up on the paid slug it suggested instead without
-asking. Prefer Sonnet over Opus, and never Fable, for routine work — Fable 5.1
+models including paid ones — without confirming its price first. The `zai`
+custom provider block (`https://api.z.ai/api/paas/v4`, `ZAI_API_KEY`) declares
+exactly one model, `glm-4.5-flash` ($0/$0, verified live 2026-09-09); never
+add a paid GLM model there without asking. A separate
+`OPENROUTER_FREE_API_KEY` is wired ONLY through the `openrouter-free` block in
+`opencode.json`, which declares exactly two slugs —
+`poolside/laguna-s-2.1:free` and `cohere/north-mini-code:free` (both $0/$0,
+verified live 2026-09-09; the earlier `z-ai/glm-5.3-flash:free` slug was
+rejected by OpenRouter's own API as a lapsed promotion and stays unwired).
+This is an explicit user-approved exception: never point any role at a paid
+OpenRouter slug, never add another slug to that block without verifying it is
+`:free` first, and never substitute the paid key. The free allowance is one
+shared 50-request/day pool across both backends (1,000/day only after a $10
+credit purchase — not approved, do not buy). Free endpoints may log prompts:
+bounded technical packets only. (`laguna-xs-2.1:free` was left out: Poolside
+rate-limited it upstream at setup time; re-check before adding.) The `tium`
+(`https://api.tium.ai/v1`, `TIUM_API_KEY`), `sail`
+(`https://api.sailresearch.com/v1`, `SAIL_API_KEY`), `above`
+(`https://api.above.dev/v1`, `ABOVE_API_KEY`) and `tiyuvta`
+(`https://api.tiyuvta.ai/v1`, `TIYUVTA_API_KEY`) blocks each declare exactly
+one pinned model (`tium/glm-5.3-flash`, `sail/zai-org/GLM-5.3-Flash`,
+`above/glm-5.3-flash-modal`, `tiyuvta/ornith-ai/ornith-1.5-35b-a3b` — all
+verified live 2026-09-09); never add another model to any of them without
+confirming its price first. Sail has zero data retention by default — prefer
+it for anything sensitive. Gemini (`gem-*`, `google/gemini-3.5-flash`) and Groq (`groq-*`,
+`groq/openai/gpt-oss-120b`) run through OpenCode's built-in `google`/`groq`
+providers, not custom `opencode.json` blocks: routing either through a generic
+OpenAI-compatible block breaks multi-step tool use (Gemini rejects calls
+missing `thought_signature`; Groq rejects returned `reasoning_content` — both
+verified 2026-09-09). `.env` holds `GEMINI_API_KEY` (direct REST reference)
+and `GOOGLE_GENERATIVE_AI_API_KEY` (same key, the name the built-in provider
+reads) plus `GROQ_API_KEY`. Google's free tier may use prompts for training
+outside the EU/UK/EEA — delegates already receive only bounded technical
+packets, never credentials or bulk book content; keep it that way. Prefer Sonnet over Opus, and never Fable, for routine work — Fable 5.1
 bills at 2x Opus and 5x Sonnet. On auth/quota failures pause that route; honor
 retry hints, avoid repeated model switches. Model listings are not proof of
 account access or unlimited free usage. Do not change the selected model

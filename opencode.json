@@ -52,6 +52,132 @@
           }
         }
       }
+    },
+    "zai": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Z.ai",
+      "options": {
+        "baseURL": "https://api.z.ai/api/paas/v4",
+        "apiKey": "{env:ZAI_API_KEY}"
+      },
+      "models": {
+        "glm-4.5-flash": {
+          "name": "GLM-4.5 Flash (free, via Z.ai)",
+          "limit": {
+            "context": 128000,
+            "output": 32768
+          }
+        }
+      }
+    },
+    "openrouter-free": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "OpenRouter (free models only)",
+      "options": {
+        "baseURL": "https://openrouter.ai/api/v1",
+        "apiKey": "{env:OPENROUTER_FREE_API_KEY}"
+      },
+      "models": {
+        "poolside/laguna-s-2.1:free": {
+          "name": "Laguna S 2.1 (free coding agent, via OpenRouter)",
+          "limit": {
+            "context": 262144,
+            "output": 32768
+          }
+        },
+        "cohere/north-mini-code:free": {
+          "name": "North Mini Code (free coding agent, via OpenRouter)",
+          "limit": {
+            "context": 256000,
+            "output": 32768
+          }
+        }
+      }
+    },
+    "tium": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Tium",
+      "options": {
+        "baseURL": "https://api.tium.ai/v1",
+        "apiKey": "{env:TIUM_API_KEY}"
+      },
+      "models": {
+        "glm-5.3-flash": {
+          "name": "GLM-5.3 Flash (metered, via Tium)",
+          "limit": {
+            "context": 200000,
+            "output": 32768
+          }
+        }
+      }
+    },
+    "sail": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Sail Research",
+      "options": {
+        "baseURL": "https://api.sailresearch.com/v1",
+        "apiKey": "{env:SAIL_API_KEY}"
+      },
+      "models": {
+        "zai-org/GLM-5.3-Flash": {
+          "name": "GLM-5.3 Flash (metered, via Sail)",
+          "limit": {
+            "context": 200000,
+            "output": 32768
+          }
+        }
+      }
+    },
+    "above": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "above.dev",
+      "options": {
+        "baseURL": "https://api.above.dev/v1",
+        "apiKey": "{env:ABOVE_API_KEY}"
+      },
+      "models": {
+        "glm-5.3-flash-modal": {
+          "name": "GLM-5.3 Flash (credit-backed, via above.dev)",
+          "limit": {
+            "context": 1000000,
+            "output": 4096
+          }
+        }
+      }
+    },
+    "tiyuvta": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "tiyuvta",
+      "options": {
+        "baseURL": "https://api.tiyuvta.ai/v1",
+        "apiKey": "{env:TIYUVTA_API_KEY}"
+      },
+      "models": {
+        "ornith-ai/ornith-1.5-35b-a3b": {
+          "name": "Ornith 1.5 35B (metered, via tiyuvta)",
+          "limit": {
+            "context": 262144,
+            "output": 32768
+          }
+        }
+      }
+    },
+    "nvidia": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "NVIDIA NIM",
+      "options": {
+        "baseURL": "https://integrate.api.nvidia.com/v1",
+        "apiKey": "{env:NVIDIA_API_KEY}"
+      },
+      "models": {
+        "nvidia/nemotron-3-ultra-550b-a55b": {
+          "name": "Nemotron 3 Ultra 550B (metered, via NVIDIA)",
+          "limit": {
+            "context": 262144,
+            "output": 32768
+          }
+        }
+      }
     }
   }
 }
