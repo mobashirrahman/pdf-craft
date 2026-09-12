@@ -1,16 +1,20 @@
 <div align=center>
   <h1>PDF Craft</h1>
   <p>
-    <a href="https://github.com/oomol-lab/pdf-craft/actions/workflows/merge-build.yml" target="_blank"><img src="https://img.shields.io/github/actions/workflow/status/oomol-lab/pdf-craft/merge-build.yml" alt="ci" /></a>
-    <a href="https://pypi.org/project/pdf-craft/" target="_blank"><img src="https://img.shields.io/badge/pip_install-pdf--craft-blue" alt="pip install pdf-craft" /></a>
-    <a href="https://pypi.org/project/pdf-craft/" target="_blank"><img src="https://img.shields.io/pypi/v/pdf-craft.svg" alt="pypi pdf-craft" /></a>
+    <a href="https://github.com/mobashirrahman/pdf-craft/actions/workflows/merge-build.yml" target="_blank"><img src="https://img.shields.io/github/actions/workflow/status/mobashirrahman/pdf-craft/merge-build.yml" alt="ci" /></a>
+    <a href="https://github.com/oomol-lab/pdf-craft" target="_blank"><img src="https://img.shields.io/badge/fork%20of-oomol--lab%2Fpdf--craft-informational" alt="fork of oomol-lab/pdf-craft" /></a>
+    <a href="https://pypi.org/project/pdf-craft/" target="_blank"><img src="https://img.shields.io/pypi/v/pdf-craft.svg" alt="pypi pdf-craft (upstream)" /></a>
     <a href="https://pypi.org/project/pdf-craft/" target="_blank"><img src="https://img.shields.io/pypi/pyversions/pdf-craft.svg" alt="python versions" /></a>
-    <a href="https://deepwiki.com/oomol-lab/pdf-craft" target="_blank"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki" /></a>
-    <a href="https://github.com/oomol-lab/pdf-craft/blob/main/LICENSE" target="_blank"><img src="https://img.shields.io/github/license/oomol-lab/pdf-craft" alt="license" /></a>
+    <a href="https://github.com/mobashirrahman/pdf-craft/blob/main/LICENSE" target="_blank"><img src="https://img.shields.io/github/license/mobashirrahman/pdf-craft" alt="license" /></a>
   </p>
-  <p><a href="https://trendshift.io/repositories/15538" target="_blank"><img src="https://trendshift.io/api/badge/repositories/15538" alt="oomol-lab%2Fpdf-craft | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a></p>
   <p><a href="./README.md">English</a> | 中文</p>
 </div>
+
+> 本仓库是 [oomol-lab/pdf-craft](https://github.com/oomol-lab/pdf-craft) 的 fork，
+> 新增了 CPU-only 的 Tesseract OCR backend、保守校对（`ConservativeProofreader`）、
+> 阅读结构恢复和 EPUB 出版元数据（`PublicationOptions`）。以下中文文档是上游原文，
+> 新增功能的说明见英文 [README](./README.md#this-fork) 与
+> [API Reference](docs/en/API_REFERENCE.md)。
 
 ## pdf-craft 是什么?
 

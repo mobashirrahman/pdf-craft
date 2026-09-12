@@ -1,14 +1,12 @@
 <div align=center>
   <h1>PDF Craft</h1>
   <p>
-    <a href="https://github.com/oomol-lab/pdf-craft/actions/workflows/merge-build.yml" target="_blank"><img src="https://img.shields.io/github/actions/workflow/status/oomol-lab/pdf-craft/merge-build.yml" alt="ci" /></a>
-    <a href="https://pypi.org/project/pdf-craft/" target="_blank"><img src="https://img.shields.io/badge/pip_install-pdf--craft-blue" alt="pip install pdf-craft" /></a>
-    <a href="https://pypi.org/project/pdf-craft/" target="_blank"><img src="https://img.shields.io/pypi/v/pdf-craft.svg" alt="pypi pdf-craft" /></a>
+    <a href="https://github.com/mobashirrahman/pdf-craft/actions/workflows/merge-build.yml" target="_blank"><img src="https://img.shields.io/github/actions/workflow/status/mobashirrahman/pdf-craft/merge-build.yml" alt="ci" /></a>
+    <a href="https://github.com/oomol-lab/pdf-craft" target="_blank"><img src="https://img.shields.io/badge/fork%20of-oomol--lab%2Fpdf--craft-informational" alt="fork of oomol-lab/pdf-craft" /></a>
+    <a href="https://pypi.org/project/pdf-craft/" target="_blank"><img src="https://img.shields.io/pypi/v/pdf-craft.svg" alt="pypi pdf-craft (upstream)" /></a>
     <a href="https://pypi.org/project/pdf-craft/" target="_blank"><img src="https://img.shields.io/pypi/pyversions/pdf-craft.svg" alt="python versions" /></a>
-    <a href="https://deepwiki.com/oomol-lab/pdf-craft" target="_blank"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki" /></a>
-    <a href="https://github.com/oomol-lab/pdf-craft/blob/main/LICENSE" target="_blank"><img src="https://img.shields.io/github/license/oomol-lab/pdf-craft" alt="license" /></a>
+    <a href="https://github.com/mobashirrahman/pdf-craft/blob/main/LICENSE" target="_blank"><img src="https://img.shields.io/github/license/mobashirrahman/pdf-craft" alt="license" /></a>
   </p>
-  <p><a href="https://trendshift.io/repositories/15538" target="_blank"><img src="https://trendshift.io/api/badge/repositories/15538" alt="oomol-lab%2Fpdf-craft | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a></p>
   <p>English | <a href="./README_zh-CN.md">中文</a></p>
 </div>
 
@@ -24,6 +22,35 @@ body text, tables of contents, footnotes, tables, formulas, and images. OCR can 
 entirely on a compatible local GPU, or use a vendor service that supplies remote
 compute. Translation uses a separate text LLM.
 
+## This fork
+
+This is a fork of [oomol-lab/pdf-craft](https://github.com/oomol-lab/pdf-craft)
+that adds a fourth, CPU-only local OCR backend and three library-level features
+built for OCR post-processing, alongside everything upstream already does:
+
+- **`TesseractOCRLocalConfig`** — run [Tesseract](https://github.com/tesseract-ocr/tesseract)
+  locally with conservative quality gating (confidence, script-ratio, and
+  ink-coverage thresholds), so OCR works without a GPU. See the
+  [OCR Backend Guide](docs/en/OCR_BACKENDS.md).
+- **`ConservativeProofreader`** — apply an LLM's proposed corrections to OCR
+  output as exact, in-place span replacements only; anything that isn't a
+  small, exact substitution of the source text is rejected rather than
+  applied as a guess.
+- **Reading-structure recovery** (`pdf_craft.transformer.reading_structure`) —
+  recover a reading copy's heading/order structure from extraction facts
+  alone, with a full audit trail of every decision, never invented content.
+- **`PublicationOptions`** — optional, publication-only EPUB enrichment
+  (cover image, ISBN, subjects, edition, source date) plus an offline
+  `validate_publication()` check, independent of extracted/translated text.
+
+These were built for a local Bengali/Bangla OCR-to-EPUB workflow; none of them
+are Bengali-specific, and all four compose with upstream's existing OCR
+backends, translation, and EPUB rendering. See
+[API Reference](docs/en/API_REFERENCE.md) for the full surface. The larger
+book-processing pipeline built on top of this fork (batch cluster processing,
+gold-standard dataset tooling, an OCR-comparison research study) lives in a
+separate repository, since it isn't part of the `pdf-craft` library itself.
+
 ## Online Version
 
 Want to try the workflow before installing anything? Open [PDF Craft Online](https://inkora.oomol.com/pdf-craft/),
@@ -34,21 +61,34 @@ the main workflow in action.
 
 ## Installation
 
-If you are getting started, use the standard installation:
+The upstream package on PyPI does not include this fork's additions (Tesseract
+backend, conservative proofreader, reading-structure recovery, EPUB publication
+metadata). If you only need what upstream provides:
 
 ```bash
 pip install pdf-craft
 ```
 
-This includes vendor OCR, Markdown/EPUB rendering, and PDF translation. Vendor OCR
-uses remote compute, so your machine does not need CUDA; you provide the service URL,
-model name, and API key in the OCR configuration.
+To get this fork's additions, install from this repository instead:
 
-Only install the local extra when you explicitly want to run OCR models on your own
-NVIDIA GPU. If you are unsure, use the standard installation above:
+```bash
+pip install "git+https://github.com/mobashirrahman/pdf-craft.git"
+```
+
+Either way, this includes vendor OCR, Markdown/EPUB rendering, and PDF translation.
+Vendor OCR uses remote compute, so your machine does not need CUDA; you provide the
+service URL, model name, and API key in the OCR configuration. The Tesseract backend
+needs a system-installed `tesseract` binary instead (see the
+[OCR Backend Guide](docs/en/OCR_BACKENDS.md)); it does not need CUDA either.
+
+Only install the local extra when you explicitly want to run the DeepSeek/Unlimited
+OCR models on your own NVIDIA GPU. If you are unsure, use the standard installation
+above:
 
 ```bash
 pip install "pdf-craft[local]"
+# or, from this fork:
+pip install "pdf-craft[local] @ git+https://github.com/mobashirrahman/pdf-craft.git"
 ```
 
 Local OCR also requires a CUDA-compatible PyTorch build, model storage, and enough
@@ -177,7 +217,7 @@ for prompts, retries, concurrency, caching, progress callbacks, and failure hand
 
 ## OCR Backends and Model Cache
 
-OCR turns page images into text. pdf-craft offers six backends; choose the runtime
+OCR turns page images into text. pdf-craft offers seven backends; choose the runtime
 location first, then choose the model family:
 
 - **No CUDA or minimal local setup:** choose vendor OCR. Pages are sent to a remote
@@ -186,9 +226,12 @@ location first, then choose the model family:
 - **A compatible NVIDIA GPU and local execution:** choose local OCR. Models are
   cached locally and run on your GPU, which keeps processing on your machine but
   requires CUDA, VRAM, and model files.
+- **CPU only, no GPU at all:** choose `TesseractOCRLocalConfig` (this fork). It runs
+  a system-installed Tesseract binary instead of a downloaded model.
 
 DeepSeek OCR and DeepSeek OCR 2 are from [DeepSeek](https://github.com/deepseek-ai/DeepSeek-OCR);
-[Unlimited OCR](https://github.com/baidu/Unlimited-OCR) is from Baidu. Each model family
+[Unlimited OCR](https://github.com/baidu/Unlimited-OCR) is from Baidu; Tesseract is the
+[Tesseract OCR engine](https://github.com/tesseract-ocr/tesseract). Each model family
 has local and vendor configurations:
 
 | Backend | Owner | Runs on | Choose it when | You need |
@@ -196,6 +239,7 @@ has local and vendor configurations:
 | `DeepSeekOCRLocalConfig` | DeepSeek | Local GPU | You want local DeepSeek OCR | CUDA, VRAM, model cache |
 | `DeepSeekOCR2LocalConfig` | DeepSeek | Local GPU | You want local DeepSeek OCR 2 | CUDA, VRAM, model cache; `base` is the verified preset |
 | `UnlimitedOCRLocalConfig` | Baidu | Local GPU | You want local Unlimited OCR | CUDA, VRAM, model cache |
+| `TesseractOCRLocalConfig` | Tesseract | Local CPU | You have no GPU, or want a fast/cheap first pass | A system `tesseract` binary + language traineddata |
 | `DeepSeekOCRVendorConfig` | DeepSeek | Remote service | You do not have CUDA or prefer remote DeepSeek OCR | URL, model, API key, network |
 | `DeepSeekOCR2VendorConfig` | DeepSeek | Remote service | You prefer remote DeepSeek OCR 2 | URL, model, API key, network |
 | `UnlimitedOCRVendorConfig` | Baidu | Remote service | You prefer remote Unlimited OCR | URL, credentials, network |
@@ -230,10 +274,12 @@ vary by backend. Markdown defaults to `toc_assumed=False`; EPUB defaults to
 ## Related Projects
 
 - [Wiki Graph](https://github.com/oomol-lab/wiki-graph): turn a converted EPUB or Markdown book into structured summaries, chapter topology, and a knowledge graph.
+- [bengali-book-pipeline](https://github.com/mobashirrahman/bengali-book-pipeline): the Bengali/Bangla book-digitization pipeline (cluster processing, gold-standard dataset tooling, an OCR-comparison research study) built on top of this fork.
 
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](./LICENSE) file for details.
+This fork's additions are contributed under the same license.
 
 Since v1.0.0, pdf-craft has used DeepSeek OCR under the MIT license and removed
 the previous AGPL-3.0 dependency. The project still receives `easydict` transitively
@@ -242,6 +288,9 @@ support and contributions.
 
 ## Acknowledgments
 
+- [pdf-craft](https://github.com/oomol-lab/pdf-craft) by Tao Zeyu and the oomol-lab
+  team — this fork's base.
 - [DeepSeek OCR](https://github.com/deepseek-ai/DeepSeek-OCR)
 - [doc-page-extractor](https://github.com/Moskize91/doc-page-extractor)
 - [pyahocorasick](https://github.com/WojciechMula/pyahocorasick)
+- [Tesseract OCR](https://github.com/tesseract-ocr/tesseract)
