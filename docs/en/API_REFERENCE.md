@@ -24,8 +24,16 @@ craft = PDFCraft(pdf=PDFOptions(ocr=your_ocr_config))
 | `render_epub` | `render_epub(extraction, output, *, book_meta=None, lan=None, table_render=..., latex_render=..., inline_latex=True, aborted=...)` writes an EPUB. Metadata and language default to the extraction manifest. |
 | `convert_pdf_to_markdown` | `convert_pdf_to_markdown(source, output, *, analysing_path=None, extraction_path=None, extraction=None, assets_path=None, translator=None, submit=SubmitKind.REPLACE, on_translation_event=None) -> OCRTokensMetering` is the one-shot PDF-to-Markdown workflow. |
 | `convert_pdf_to_epub` | `convert_pdf_to_epub(source, output, *, analysing_path=None, extraction_path=None, extraction=None, book_meta=None, lan=None, table_render=..., latex_render=..., inline_latex=True, translator=None, submit=SubmitKind.REPLACE, on_translation_event=None) -> OCRTokensMetering` is the one-shot PDF-to-EPUB workflow. |
+| `release_pdf_resources` | `release_pdf_resources()` drops the cached PDF/OCR engine so GPU memory can be reclaimed before another local model runs. A later extraction recreates it from `PDFOptions`. |
 
-The two `convert_pdf_to_*` methods use a directory-backed extraction inside their analysis workspace, avoiding a ZIP round trip. Give `analysing_path` to retain diagnostics and `extraction_path` to additionally export a `.pcex`. `render_epub` accepts `epub_generator.BookMeta`, `TableRender`, and `LaTeXRender` values for output customization.
+The façade reuses its lazily created OCR engine across explicit extraction calls.
+Call `release_pdf_resources()` when another process needs the same constrained
+GPU; rendering and extraction transformations remain available. The two
+`convert_pdf_to_*` methods use a directory-backed extraction inside their analysis
+workspace, avoiding a ZIP round trip. Give `analysing_path` to retain diagnostics
+and `extraction_path` to additionally export a `.pcex`. `render_epub` accepts
+`epub_generator.BookMeta`, `TableRender`, and `LaTeXRender` values for output
+customization.
 
 ### Extraction translation and PDF patching
 
@@ -110,8 +118,36 @@ All OCR configuration objects are immutable dataclasses and are passed to `PDFOp
 | `DeepSeekOCRVendorConfig` | `base_url`, `api_key`, `model` | `temperature`, `top_p`, `max_tokens=8000`, `timeout_seconds=180` |
 | `DeepSeekOCR2VendorConfig` | `base_url`, `api_key`, `model` | `temperature`, `top_p`, `max_tokens=8000`, `timeout_seconds=180` |
 | `UnlimitedOCRVendorConfig` | `ak`, `sk` | `base_url="https://aip.baidubce.com"`, `poll_interval_seconds=2.0`, `timeout_seconds=180` |
+| `TesseractOCRLocalConfig` | none | `executable="tesseract"`, `tessdata_path`, `language="ben"`, `page_segmentation_modes=(3, 6)`, `oem=1`, `timeout_seconds=120`, `minimum_confidence=65.0`, `minimum_bengali_ratio=0.60`, `minimum_ink_coverage=0.45` |
 
 See [OCR backends](OCR_BACKENDS.md) for model origin, runtime requirements, and selection guidance.
+
+## Conservative proofreading, reading-structure recovery, and EPUB publication
+
+Three additions for a local, auditable OCR-to-book workflow, independent of any
+one OCR backend or pipeline:
+
+- `ConservativeProofreader` (`from pdf_craft import ConservativeProofreader`)
+  applies exact-span corrections from an LLM's proposed edits, never a
+  rewrite: `validate_edits(text, response, protected_words=())` (in
+  `pdf_craft.transformer.proofreader`) rejects any proposal that is not a
+  small, exact, in-place substitution of the source span, and returns which
+  edits were accepted alongside the corrected text.
+- `pdf_craft.transformer.reading_structure.recover_structure(extraction,
+  output, audit_path, overrides=())` recovers a reading-copy structure
+  (headings, reading order) from extraction facts only — it never invents
+  content — and writes an audit trail of every decision to `audit_path`.
+- `PublicationOptions` (`from pdf_craft import PublicationOptions`) is
+  optional, publication-only EPUB enrichment — cover image, ISBN, subjects,
+  edition, source date — passed to `EpubRenderer.render(..., publication=...)`
+  alongside `book_meta`. Changing it never changes extracted or translated
+  text. `pdf_craft.renderer.epub.validation.validate_publication(path)` runs
+  small offline checks (manifest completeness, duplicate ids, broken local
+  links, correct mimetype); it is not a substitute for EPUBCheck or reader
+  testing.
+- `render_markdown_bundle` (`from pdf_craft import render_markdown_bundle`)
+  writes a markdown reading copy plus lossless, source-linked retrieval
+  chunks (`split_chunks` controls chunk sizing by token count).
 
 ## Transformations and submission modes
 

@@ -17,11 +17,12 @@ backend 时不需要再修改 `.env`。翻译
 
 ## OCR backend 配置与选择
 
-`.env.template` 为以下六种 backend 分别保留配置分组：
+`.env.template` 为以下七种 backend 分别保留配置分组：
 
 - `deepseek-ocr-local`
 - `deepseek-ocr2-local`
 - `unlimited-ocr-local`
+- `tesseract-ocr-local`（CPU，无需 GPU；见 [OCR backend 指南](../docs/en/OCR_BACKENDS.md)）
 - `deepseek-ocr-vendor`
 - `deepseek-ocr2-vendor`
 - `unlimited-ocr-vendor`
@@ -112,6 +113,30 @@ poetry run python -m pdf_craft_tool epub translate tests/assets/epub/Cambridge.e
 控制 XML Translator；通过 `--translation-llm PROFILE` 和 `--fill-llm PROFILE` 选择 profile。
 两者相同（默认都是 `translation`）时复用同一个 `LLM` 对象。`pdf translate --format pdf`
 只允许 `--submit replace`。PDF 提取命令还可通过 `--toc-llm PROFILE` 使用 LLM 改善目录层级判断。
+
+## 保守校对（proofread）
+
+```shell
+# PDF -> Tesseract OCR -> 保守校对（精确片段替换）-> Markdown/EPUB
+poetry run python -m pdf_craft_tool pdf proofread tests/assets/pdf/citation.pdf \
+  --format markdown --ocr-mode tesseract-ocr-local --pages 1
+
+# 已有 .pcex -> 校对后的 .pcex + 输出
+poetry run python -m pdf_craft_tool package proofread \
+  pdf-craft-output/citation-extract/book.pcex --format epub
+
+# 递归处理一个目录下的全部 PDF：先 OCR 再校对，两个 GPU/CPU 阶段可分开运行
+poetry run python -m pdf_craft_tool batch SOURCE_DIR --work-dir pdf-craft-output/batch \
+  --stage all --ocr-mode tesseract-ocr-local
+```
+
+`proofread` 系列命令默认使用 `Bangla (Bengali)` 语言与 `proofread` LLM profile，
+适合本地 Ollama 之类的小模型；`--llm PROFILE` 可覆盖。校对只接受源文本片段的精确、
+原地替换（`ConservativeProofreader`／`validate_edits`），拒绝任何改写、删段或无法
+精确定位到源文本的提议——不确定的编辑保留原文而不是应用猜测。`batch --stage`
+可拆成 `extract`（仅 OCR）与 `proofread`（仅校对）两次运行，便于把它们放到不同的
+GPU/CPU 时间段执行；`_batch_proofread` 会跳过已完成阶段并把失败记录写入报告，
+不会中断整批处理。
 
 ## 冒烟矩阵
 
