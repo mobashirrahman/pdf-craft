@@ -12,15 +12,88 @@ from pdf_craft_tool.cli import (
     _record_pdf_cache_owner,
     _resolve_ocr_size,
     _run_matrix,
+    _batch_proofread,
     _smoke_exit_code,
     _validate_ocr_size,
     _work_dir,
 )
 from pdf_craft_tool.paths import create_run_directory
 from pdf_craft_tool.runtime import create_llm_from_env, create_ocr_config_from_env, ocr_mode_from_env
+from tests.extraction_helpers import make_extraction
 
 
 class TestPDFCraftTool(unittest.TestCase):
+    def test_proofreading_commands_have_bangla_local_defaults(self):
+        pdf_args = _parser().parse_args([
+            "pdf", "proofread", "book.pdf", "--format", "markdown",
+        ])
+        self.assertEqual(pdf_args.language, "Bangla (Bengali)")
+        self.assertEqual(pdf_args.llm, "proofread")
+        self.assertIsNone(pdf_args.fill_llm)
+        self.assertEqual(pdf_args.default_ocr_size, "gundam")
+
+        package_args = _parser().parse_args([
+            "package", "proofread", "book.pcex", "--format", "epub",
+        ])
+        self.assertEqual(package_args.language, "Bangla (Bengali)")
+        self.assertEqual(package_args.llm, "proofread")
+
+    def test_batch_dry_run_recursively_lists_pdfs_without_loading_env(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"
+            (source / "nested").mkdir(parents=True)
+            (source / "nested" / "one.PDF").write_bytes(b"pdf")
+            (source / "ignore.txt").write_text("no", encoding="utf-8")
+            output = root / "output"
+            args = _parser().parse_args([
+                "batch", str(source), "--output-dir", str(output), "--dry-run",
+            ])
+            with patch("pdf_craft_tool.cli.load_project_env") as load_env:
+                self.assertEqual(_batch_proofread(args), 0)
+            load_env.assert_not_called()
+            self.assertFalse(output.exists())
+
+    def test_batch_proofreading_resumes_from_extraction_and_skips_outputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"
+            (source / "nested").mkdir(parents=True)
+            (source / "nested" / "book.pdf").write_bytes(b"pdf")
+            output = root / "output"
+            work = output / ".work" / "nested" / "book"
+            work.mkdir(parents=True)
+            make_extraction(root / "extraction").export(work / "book.pcex")
+            args = _parser().parse_args([
+                "batch", str(source), "--output-dir", str(output),
+                "--stage", "proofread", "--format", "both",
+            ])
+
+            class Identity:
+                def transform(self, chapter):
+                    return chapter
+
+            def render(_craft, _extraction, _format_name, path):
+                path.write_text("rendered", encoding="utf-8")
+
+            with patch("pdf_craft_tool.cli.load_project_env"), \
+                    patch("pdf_craft_tool.cli._proofreading_transformer", return_value=Identity()), \
+                    patch("pdf_craft_tool.cli._render", side_effect=render):
+                self.assertEqual(_batch_proofread(args), 0)
+
+            report = json.loads((output / "batch-report.json").read_text(encoding="utf-8"))
+            self.assertEqual(report["status"], "completed")
+            self.assertEqual(report["books"][0]["status"], "completed")
+            self.assertTrue((output / "nested" / "book.md").is_file())
+            self.assertTrue((output / "nested" / "book.epub").is_file())
+
+            with patch("pdf_craft_tool.cli.load_project_env"), \
+                    patch("pdf_craft_tool.cli._proofreading_transformer") as transformer:
+                self.assertEqual(_batch_proofread(args), 0)
+            transformer.assert_not_called()
+            report = json.loads((output / "batch-report.json").read_text(encoding="utf-8"))
+            self.assertEqual(report["books"][0]["status"], "skipped")
+
     def test_smoke_exit_code_rejects_failed_and_skipped_reports(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

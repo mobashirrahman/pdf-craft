@@ -84,13 +84,14 @@ def render_epub_file(
                 title = "".join(_iter_text_in_title(first_layout)).strip()
                 if not title:
                     title = "Untitled"
-                have_body = len(chapter.layouts) > 1
                 toc_collection.collect(
                     toc_id=chapter.id,
                     title=title,
-                    have_body=have_body,
-                    get_chapter=get_chapter if have_body else None,
+                    have_body=True,
+                    get_chapter=get_chapter,
                 )
+            else:
+                toc_collection.collect(chapter.id, f"Chapter {chapter.id}", True, get_chapter)
 
     epub_data = EpubData(
         meta=book_meta,
@@ -142,15 +143,26 @@ def _convert_chapter_to_epub(
                     _transform_content(
                         content=block.content,
                         inline_latex=inline_latex,
-                        ref_id_to_number=None,
+                        ref_id_to_number=ref_id_to_number,
                     )
                 )
             if content:
+                if layout.ref in {"verse", "poetry", "letter", "scene-break"}:
+                    formatted = []
+                    for part in content:
+                        if isinstance(part, str):
+                            for index, line in enumerate(part.split("\n")):
+                                if index:
+                                    formatted.append(EpubHTMLTag(name="br", attributes=[], content=[]))
+                                formatted.append(line)
+                        else:
+                            formatted.append(part)
+                    content = [EpubHTMLTag(name="span", attributes=[("class", "reading-" + layout.ref)], content=formatted)]
                 elements.append(
                     TextBlock(
                         kind=TextKind.HEADLINE
                         if layout.ref in TITLE_TAGS
-                        else TextKind.BODY,
+                        else TextKind.QUOTE if layout.ref == "quote" else TextKind.BODY,
                         level=layout.level,
                         content=content,
                     )

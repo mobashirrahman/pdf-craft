@@ -19,6 +19,7 @@ from pdf_craft import (
     LLM,
     OCRConfig,
     OCRMode,
+    TesseractOCRLocalConfig,
     UnlimitedOCRLocalConfig,
     UnlimitedOCRVendorConfig,
 )
@@ -48,6 +49,14 @@ def load_env(path: Path) -> None:
 def create_ocr_config_from_env(mode: OCRMode | None = None) -> OCRConfig:
     """Create an explicit pdf-craft OCR config from ``PDF_CRAFT_*`` settings."""
     mode = mode or cast(OCRMode, _str("PDF_CRAFT_OCR_MODE", default="deepseek-ocr-local"))
+    if mode == "tesseract-ocr-local":
+        return TesseractOCRLocalConfig(
+            executable=_str("PDF_CRAFT_TESSERACT_EXECUTABLE", "tesseract"),
+            tessdata_path=_str("PDF_CRAFT_TESSERACT_DATA_PATH") or None,
+            language=_str("PDF_CRAFT_TESSERACT_LANGUAGE", "ben"),
+            easyocr_fallback=_bool("PDF_CRAFT_TESSERACT_EASYOCR_FALLBACK", False),
+            easyocr_model_path=_str("PDF_CRAFT_EASYOCR_MODEL_PATH") or None,
+        )
     if mode == "deepseek-ocr-local":
         return DeepSeekOCRLocalConfig(
             models_cache_path=_backend_str(

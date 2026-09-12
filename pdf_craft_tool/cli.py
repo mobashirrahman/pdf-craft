@@ -1,6 +1,8 @@
 """Repository-local CLI for repeatable pdf-craft conversions and smoke runs."""
 
 import argparse
+import gc
+import importlib
 import json
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -76,6 +78,16 @@ def _parser() -> argparse.ArgumentParser:
     _add_extraction_options(translate)
     translate.set_defaults(handler=_translate_pdf)
 
+    proofread = pdf_commands.add_parser(
+        "proofread", help="PDF -> proofread Markdown or EPUB"
+    )
+    _add_pdf_source(proofread)
+    proofread.add_argument("--format", choices=("markdown", "epub"), required=True)
+    proofread.add_argument("--output", type=Path, help="proofread file; defaults inside --work-dir")
+    _add_proofreading_options(proofread)
+    _add_extraction_options(proofread)
+    proofread.set_defaults(handler=_proofread_pdf)
+
     package = commands.add_parser("package", help="operate on a PDFCraftExtraction (.pcex)")
     package_commands = package.add_subparsers(dest="package_command", required=True)
     package_translate = package_commands.add_parser(
@@ -87,6 +99,17 @@ def _parser() -> argparse.ArgumentParser:
     _add_work_dir(package_translate, "isolated run directory")
     _add_translation_options(package_translate)
     package_translate.set_defaults(handler=_translate_package)
+
+    package_proofread = package_commands.add_parser(
+        "proofread", help="proofread an existing PDFCraftExtraction"
+    )
+    package_proofread.add_argument("package", type=Path)
+    package_proofread.add_argument("--format", choices=("markdown", "epub"), required=True)
+    package_proofread.add_argument("--output", type=Path, help="proofread file; defaults inside --work-dir")
+    package_proofread.add_argument("--output-package", type=Path)
+    _add_work_dir(package_proofread, "isolated run directory")
+    _add_proofreading_options(package_proofread)
+    package_proofread.set_defaults(handler=_proofread_package)
 
     package_patch = package_commands.add_parser(
         "patch-pdf", help="patch an original PDF with a PDFCraftExtraction"
@@ -113,6 +136,24 @@ def _parser() -> argparse.ArgumentParser:
     _add_work_dir(epub_translate, "isolated run directory")
     _add_translation_options(epub_translate)
     epub_translate.set_defaults(handler=_translate_epub)
+
+    batch = commands.add_parser(
+        "batch", help="recursively OCR and proofread a directory of PDFs"
+    )
+    batch.add_argument("source", type=Path, help="directory containing PDF books")
+    batch.add_argument("--output-dir", type=Path, required=True)
+    batch.add_argument("--format", choices=("markdown", "epub", "both"), default="both")
+    batch.add_argument(
+        "--stage", choices=("all", "extract", "proofread"), default="all",
+        help="run OCR first, proofreading second, or both as separate GPU phases",
+    )
+    batch.add_argument("--limit", type=int, help="process only the first N books")
+    batch.add_argument("--dry-run", action="store_true", help="list books without loading OCR or LLMs")
+    batch.add_argument("--fail-fast", action="store_true")
+    batch.add_argument("--ocr-mode", choices=_ocr_modes(), help="overrides PDF_CRAFT_OCR_MODE")
+    _add_proofreading_options(batch)
+    _add_extraction_options(batch)
+    batch.set_defaults(handler=_batch_proofread)
 
     smoke = commands.add_parser("smoke", help="run parameterized smoke conversions and reports")
     smoke_commands = smoke.add_subparsers(dest="smoke_command", required=True)
@@ -181,6 +222,20 @@ def _add_translation_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--fill-llm", default="fill", metavar="PROFILE")
 
 
+def _add_proofreading_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--language", default="Bangla (Bengali)")
+    parser.add_argument(
+        "--prompt", help="optional collection-specific spelling or style rules"
+    )
+    parser.add_argument("--max-retries", type=int, default=3)
+    parser.add_argument("--max-group-tokens", type=int, default=1800)
+    parser.add_argument("--llm", default="proofread", metavar="PROFILE")
+    parser.add_argument(
+        "--fill-llm", metavar="PROFILE",
+        help="optional separate XML reconstruction model; defaults to --llm",
+    )
+
+
 def _add_smoke_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--pages", help="comma-separated 1-based PDF page indexes")
     parser.add_argument("--ocr-size", choices=("tiny", "small", "base", "large", "gundam"))
@@ -228,6 +283,8 @@ def _translate_pdf(args: argparse.Namespace) -> None:
         raise SystemExit("PDF output supports only --submit replace")
     work_dir = _work_dir(args.source, args.work_dir, "translate")
     result = _extract(args, work_dir / "book.pcex")
+    result.craft.release_pdf_resources()
+    _release_cuda_cache()
     transformer = _xml_transformer(args, work_dir)
     if args.format == "pdf":
         output = args.output or work_dir / f"{args.source.stem}-{args.target_language}.pdf"
@@ -246,6 +303,27 @@ def _translate_pdf(args: argparse.Namespace) -> None:
     _print_metering(result.metering)
 
 
+def _proofread_pdf(args: argparse.Namespace) -> None:
+    work_dir = _work_dir(args.source, args.work_dir, "proofread")
+    result = _extract(args, work_dir / "book.pcex")
+    result.craft.release_pdf_resources()
+    _release_cuda_cache()
+    proofread = result.craft.translate_extraction(
+        result.extraction,
+        work_dir / "proofread.pcex",
+        _proofreading_transformer(args, work_dir),
+    )
+    output = args.output or work_dir / (
+        "book.md" if args.format == "markdown" else "book.epub"
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    _render(result.craft, proofread, args.format, output)
+    print(f"Extraction: {result.path}")
+    print(f"Proofread extraction: {work_dir / 'proofread.pcex'}")
+    print(f"Output: {output}")
+    _print_metering(result.metering)
+
+
 def _translate_package(args: argparse.Namespace) -> None:
     load_project_env(_project_root())
     work_dir = _work_dir(args.package, args.work_dir, "package-translate")
@@ -257,6 +335,23 @@ def _translate_package(args: argparse.Namespace) -> None:
         extraction, output_package, transformer, submit=mode,
     )
     print(f"Extraction: {output_package}")
+
+
+def _proofread_package(args: argparse.Namespace) -> None:
+    load_project_env(_project_root())
+    work_dir = _work_dir(args.package, args.work_dir, "package-proofread")
+    extraction = PDFCraftExtraction.open(args.package)
+    output_package = args.output_package or work_dir / "proofread.pcex"
+    proofread = PDFCraft().translate_extraction(
+        extraction, output_package, _proofreading_transformer(args, work_dir)
+    )
+    output = args.output or work_dir / (
+        "book.md" if args.format == "markdown" else "book.epub"
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    _render(PDFCraft(), proofread, args.format, output)
+    print(f"Proofread extraction: {output_package}")
+    print(f"Output: {output}")
 
 
 def _patch_package_pdf(args: argparse.Namespace) -> None:
@@ -296,6 +391,216 @@ def _translate_epub(args: argparse.Namespace) -> None:
         translation_llm=translation_llm, fill_llm=fill_llm,
     )
     print(f"Output: {output}")
+
+
+def _batch_proofread(args: argparse.Namespace) -> int:
+    if not args.source.is_dir():
+        raise SystemExit(f"Batch source is not a directory: {args.source}")
+    if args.limit is not None and args.limit < 1:
+        raise SystemExit("--limit must be a positive integer")
+
+    sources = sorted(
+        path for path in args.source.rglob("*")
+        if path.is_file() and path.suffix.lower() == ".pdf"
+    )
+    if args.limit is not None:
+        sources = sources[:args.limit]
+    if not sources:
+        raise SystemExit(f"No PDF files found under: {args.source}")
+
+    if args.dry_run:
+        print(json.dumps({
+            "status": "planned",
+            "book_count": len(sources),
+            "books": [str(path.relative_to(args.source)) for path in sources],
+        }, ensure_ascii=False, indent=2))
+        return 0
+
+    load_project_env(_project_root())
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    report_path = args.output_dir / "batch-report.json"
+    report: dict[str, Any] = {
+        "schema": 1,
+        "source": str(args.source.resolve()),
+        "output": str(args.output_dir.resolve()),
+        "stage": args.stage,
+        "book_count": len(sources),
+        "books": [{"source": str(path.relative_to(args.source))} for path in sources],
+    }
+    entries = cast(list[dict[str, Any]], report["books"])
+    stopped = False
+
+    if args.stage in {"all", "extract"}:
+        ocr_mode = cast(OCRMode | None, args.ocr_mode) or ocr_mode_from_env()
+        ocr_size = _resolve_ocr_size(args.ocr_size, ocr_mode, args.default_ocr_size)
+        _validate_ocr_size(ocr_mode, ocr_size)
+        ocr_craft = PDFCraft(pdf=PDFOptions(ocr=create_ocr_config_from_env(ocr_mode)))
+        for index, (source, entry) in enumerate(zip(sources, entries), 1):
+            relative = source.relative_to(args.source)
+            print(f"OCR [{index}/{len(sources)}] {relative}")
+            try:
+                extraction_path = _extract_batch_book(
+                    args, source, relative, ocr_craft, ocr_mode, ocr_size
+                )
+                entry["extraction"] = str(extraction_path)
+                entry["extraction_status"] = "completed"
+            except Exception as error:  # isolate failures across a large collection
+                _record_batch_failure(entry, "extraction", error)
+                if args.fail_fast:
+                    stopped = True
+            _update_batch_report(report_path, report)
+            if stopped:
+                break
+        del ocr_craft
+        _release_cuda_cache()
+
+    if args.stage in {"all", "proofread"} and not stopped:
+        for index, (source, entry) in enumerate(zip(sources, entries), 1):
+            relative = source.relative_to(args.source)
+            if entry.get("error_phase") == "extraction":
+                continue
+            print(f"LLM [{index}/{len(sources)}] {relative}")
+            try:
+                result = _proofread_batch_book(args, relative)
+                proofreading_status = result.pop("status")
+                entry.update(result)
+                entry["proofreading_status"] = proofreading_status
+            except Exception as error:  # isolate failures across a large collection
+                _record_batch_failure(entry, "proofreading", error)
+                if args.fail_fast:
+                    stopped = True
+            _update_batch_report(report_path, report)
+            if stopped:
+                break
+
+    failed = sum("error" in entry for entry in entries)
+    for entry in entries:
+        if "error" in entry:
+            entry["status"] = "failed"
+        elif args.stage == "extract" and entry.get("extraction_status") == "completed":
+            entry["status"] = "completed"
+        elif entry.get("proofreading_status") in {"completed", "skipped"}:
+            entry["status"] = entry["proofreading_status"]
+        else:
+            entry["status"] = "not-run"
+    report["failed"] = failed
+    report["status"] = "failed" if failed or stopped else "completed"
+    _write_batch_report(report_path, report)
+    print(f"Batch report: {report_path}")
+    return 1 if failed or stopped else 0
+
+
+def _extract_batch_book(
+    args: argparse.Namespace,
+    source: Path,
+    relative: Path,
+    craft: PDFCraft,
+    ocr_mode: OCRMode,
+    ocr_size: str,
+) -> Path:
+    work_dir = args.output_dir / ".work" / relative.with_suffix("")
+    extraction_path = work_dir / "book.pcex"
+    if extraction_path.exists():
+        PDFCraftExtraction.open(extraction_path).validate()
+        print(f"RESUME extraction: {extraction_path}")
+        return extraction_path
+    work_dir.mkdir(parents=True, exist_ok=True)
+    book_args = argparse.Namespace(**vars(args))
+    book_args.source = source
+    _extract_with_craft(book_args, extraction_path, craft, ocr_mode, ocr_size)
+    return extraction_path
+
+
+def _proofread_batch_book(
+    args: argparse.Namespace, relative: Path
+) -> dict[str, Any]:
+    formats = ("markdown", "epub") if args.format == "both" else (args.format,)
+    output_parent = args.output_dir / relative.parent
+    outputs = {
+        format_name: output_parent / (
+            f"{relative.stem}.md" if format_name == "markdown" else f"{relative.stem}.epub"
+        )
+        for format_name in formats
+    }
+    if all(path.exists() for path in outputs.values()):
+        print("SKIP: all requested outputs already exist")
+        return {
+            "source": str(relative),
+            "status": "skipped",
+            "outputs": {name: str(path) for name, path in outputs.items()},
+        }
+
+    work_dir = args.output_dir / ".work" / relative.with_suffix("")
+    extraction_path = work_dir / "book.pcex"
+    if not extraction_path.exists():
+        raise FileNotFoundError(
+            f"missing {extraction_path}; run batch with --stage extract first"
+        )
+    extraction = PDFCraftExtraction.open(extraction_path).validate()
+
+    proofread_path = work_dir / "proofread.pcex"
+    if proofread_path.exists():
+        proofread = PDFCraftExtraction.open(proofread_path).validate()
+        print(f"RESUME proofreading: {proofread_path}")
+    else:
+        proofread = PDFCraft().translate_extraction(
+            extraction,
+            proofread_path,
+            _proofreading_transformer(args, work_dir),
+        )
+
+    for format_name, output in outputs.items():
+        if output.exists():
+            continue
+        output.parent.mkdir(parents=True, exist_ok=True)
+        _render(PDFCraft(), proofread, format_name, output)
+        print(f"Output: {output}")
+    return {
+        "source": str(relative),
+        "status": "completed",
+        "extraction": str(extraction_path),
+        "proofread_extraction": str(proofread_path),
+        "outputs": {name: str(path) for name, path in outputs.items()},
+    }
+
+
+def _record_batch_failure(
+    entry: dict[str, Any], phase: str, error: Exception
+) -> None:
+    entry["error_phase"] = phase
+    entry["error"] = f"{type(error).__name__}: {error}"
+    print(f"FAILED: {entry['error']}")
+
+
+def _update_batch_report(path: Path, report: dict[str, Any]) -> None:
+    entries = cast(list[dict[str, Any]], report["books"])
+    report["completed_operations"] = sum(
+        key in entry
+        for entry in entries
+        for key in ("extraction_status", "proofreading_status", "error")
+    )
+    report["failed"] = sum("error" in entry for entry in entries)
+    _write_batch_report(path, report)
+
+
+def _release_cuda_cache() -> None:
+    """Release the in-process OCR model before Ollama takes over the GPU."""
+    gc.collect()
+    try:
+        torch = importlib.import_module("torch")
+    except ImportError:
+        return
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
+def _write_batch_report(path: Path, report: dict[str, Any]) -> None:
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    temporary.replace(path)
 
 
 def _list_assets(args: argparse.Namespace) -> None:
@@ -430,8 +735,20 @@ def _extract(args: argparse.Namespace, extraction_path: Path) -> _ExtractionResu
     ocr_mode = cast(OCRMode | None, args.ocr_mode) or ocr_mode_from_env()
     ocr_size = _resolve_ocr_size(args.ocr_size, ocr_mode, args.default_ocr_size)
     _validate_ocr_size(ocr_mode, ocr_size)
-    _record_pdf_cache_owner(extraction_path.parent, args, ocr_mode, ocr_size)
     craft = PDFCraft(pdf=PDFOptions(ocr=create_ocr_config_from_env(ocr_mode)))
+    return _extract_with_craft(
+        args, extraction_path, craft, ocr_mode, ocr_size
+    )
+
+
+def _extract_with_craft(
+    args: argparse.Namespace,
+    extraction_path: Path,
+    craft: PDFCraft,
+    ocr_mode: OCRMode,
+    ocr_size: str,
+) -> _ExtractionResult:
+    _record_pdf_cache_owner(extraction_path.parent, args, ocr_mode, ocr_size)
     extraction, metering = craft.extract_pdf_with_metering(
         args.source, extraction_path, ExtractionOptions(
             page_indexes=_page_indexes(args.pages), ocr_size=cast(Any, ocr_size), dpi=args.dpi,
@@ -460,6 +777,35 @@ def _xml_transformer(args: argparse.Namespace, work_dir: Path) -> ChapterXMLTran
         cache_seed_content=f"pdf-craft-tool:{args.target_language}",
     )
     return ChapterXMLTransformer(cast(Any, translator))
+
+
+def _proofreading_transformer(
+    args: argparse.Namespace, work_dir: Path
+) -> ChapterXMLTransformer:
+    proofreading_llm = create_llm_from_env(
+        args.llm,
+        cache_path=work_dir / "proofreading-cache",
+        log_dir_path=work_dir / "proofreading-logs",
+    )
+    fill_profile = args.fill_llm or args.llm
+    fill_llm = proofreading_llm if fill_profile == args.llm else create_llm_from_env(
+        fill_profile,
+        cache_path=work_dir / "fill-cache",
+        log_dir_path=work_dir / "fill-logs",
+    )
+    proofreader = XMLTranslator(
+        translation_llm=proofreading_llm,
+        fill_llm=fill_llm,
+        target_language=args.language,
+        user_prompt=args.prompt,
+        ignore_translated_error=False,
+        max_retries=args.max_retries,
+        max_fill_displaying_errors=3,
+        max_group_score=args.max_group_tokens,
+        cache_seed_content=f"pdf-craft-tool:proofread:{args.language}",
+        prompt_template="proofread",
+    )
+    return ChapterXMLTransformer(cast(Any, proofreader))
 
 
 def _render(craft: PDFCraft, extraction: PDFCraftExtraction,
@@ -554,6 +900,7 @@ def _page_indexes(value: str | None) -> tuple[int, ...] | None:
 
 def _ocr_modes() -> tuple[str, ...]:
     return (
+        "tesseract-ocr-local",
         "deepseek-ocr-local", "deepseek-ocr2-local", "unlimited-ocr-local",
         "deepseek-ocr-vendor", "deepseek-ocr2-vendor", "unlimited-ocr-vendor",
     )

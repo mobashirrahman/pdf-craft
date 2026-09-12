@@ -7,6 +7,7 @@ from pdf_craft import (
     DeepSeekOCRVendorConfig,
     OCRConfig,
     OCRMode,
+    TesseractOCRLocalConfig,
     UnlimitedOCRLocalConfig,
     UnlimitedOCRVendorConfig,
 )
@@ -14,6 +15,8 @@ from pdf_craft import (
 
 def create_ocr_config(mode: OCRMode, values: dict[str, Any]) -> OCRConfig:
     """Build an OCR config from explicit caller-supplied values only."""
+    if mode == "tesseract-ocr-local":
+        return TesseractOCRLocalConfig(**values)
     if mode == "deepseek-ocr-local":
         return DeepSeekOCRLocalConfig(**values)
     if mode == "deepseek-ocr2-local":
