@@ -33,6 +33,7 @@ from .ocr_config import (
     LocalOCRConfig,
     OCRConfig,
     OCRMode,
+    TesseractOCRLocalConfig,
     VendorOCRConfig,
     UnlimitedOCRLocalConfig,
     UnlimitedOCRVendorConfig,
@@ -51,3 +52,6 @@ from .pdf import (
 from .document import PDFCraftExtraction, SourceLocation
 from .extractor import PDFExtractor
 from .renderer import EpubRenderer, MarkdownRenderer
+from .renderer.epub.options import PublicationOptions
+from .renderer.markdown.bundle import render_markdown_bundle
+from .transformer.proofreader import ConservativeProofreader

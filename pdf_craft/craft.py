@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Iterator, Literal
+from typing import Iterator
 
 from epub_generator import BookMeta, LaTeXRender, TableRender
 
@@ -26,6 +26,7 @@ from .pipeline.epub import translate_epub as run_epub_translation
 from .pipeline.pdf import PDFTranslationPipeline
 from .pipeline.pdf.pipeline import _to_patch_text
 from .renderer import EpubRenderer, MarkdownRenderer
+from .renderer.epub.options import PublicationOptions
 from .transformer import ChapterExtractionTransformer, ChapterTransformer, SubmitKind, TranslationEvent
 
 
@@ -74,6 +75,14 @@ class PDFCraft:
     @classmethod
     def from_engine(cls, engine) -> "PDFCraft":
         return cls(_engine=engine)
+
+    def release_pdf_resources(self) -> None:
+        """Drop the cached PDF/OCR engine so its model memory can be reclaimed.
+
+        Rendering and extraction transformation remain available. A later PDF
+        extraction recreates the engine from this facade's ``PDFOptions``.
+        """
+        self._engine = None
 
     def extract_pdf(
         self, source: PathLike | str, extraction_path: PathLike | str,
@@ -136,13 +145,15 @@ class PDFCraft:
 
     def render_epub(
         self, extraction: PDFCraftExtraction | PathLike | str, output: PathLike | str, *,
-        book_meta: BookMeta | None = None, lan: Literal["zh", "en"] | None = None,
+        book_meta: BookMeta | None = None, lan: str | None = None,
+        publication: PublicationOptions | None = None,
         table_render: TableRender = TableRender.HTML,
         latex_render: LaTeXRender = LaTeXRender.MATHML,
         inline_latex: bool = True,
         aborted: AbortedCheck = lambda: False,
     ) -> None:
         EpubRenderer().render(_ensure_extraction(extraction), Path(output), book_meta=book_meta, lan=lan,
+                              publication=publication,
                               table_render=table_render, latex_render=latex_render,
                               inline_latex=inline_latex, aborted=aborted)
 
@@ -209,7 +220,7 @@ class PDFCraft:
         analysing_path: PathLike | str | None = None,
         extraction_path: PathLike | str | None = None,
         extraction: ExtractionOptions | None = None,
-        book_meta: BookMeta | None = None, lan: Literal["zh", "en"] | None = None,
+        book_meta: BookMeta | None = None, lan: str | None = None,
         table_render: TableRender = TableRender.HTML,
         latex_render: LaTeXRender = LaTeXRender.MATHML,
         inline_latex: bool = True,
@@ -295,9 +306,13 @@ class PDFCraft:
             raise ValueError("PDF extraction requires PDFCraft(pdf=PDFOptions(...))")
         # Import lazily so EPUB-only callers never import the historical adapter.
         from .transform import PDFExtractionEngine
-        return PDFExtractionEngine(models_cache_path=self._pdf.models_cache_path,
-                                   pdf_handler=self._pdf.pdf_handler,
-                                   local_only=self._pdf.local_only, ocr=self._pdf.ocr)
+        self._engine = PDFExtractionEngine(
+            models_cache_path=self._pdf.models_cache_path,
+            pdf_handler=self._pdf.pdf_handler,
+            local_only=self._pdf.local_only,
+            ocr=self._pdf.ocr,
+        )
+        return self._engine
 
 
 @contextmanager

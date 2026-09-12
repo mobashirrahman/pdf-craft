@@ -241,3 +241,15 @@ class TestPDFCraft(unittest.TestCase):
 
     def test_pdf_options_are_accepted_without_eager_pdf_initialization(self):
         PDFCraft(pdf=PDFOptions())
+
+    def test_pdf_engine_is_reused_across_batch_extractions(self):
+        craft = PDFCraft(pdf=PDFOptions())
+        with patch("pdf_craft.transform.PDFExtractionEngine") as engine_type:
+            engine_type.side_effect = [object(), object()]
+            first = craft._pdf_engine()
+            second = craft._pdf_engine()
+            craft.release_pdf_resources()
+            third = craft._pdf_engine()
+        self.assertIs(first, second)
+        self.assertIsNot(first, third)
+        self.assertEqual(engine_type.call_count, 2)

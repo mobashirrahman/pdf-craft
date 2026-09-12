@@ -54,6 +54,16 @@ def render_layouts(
 def render_paragraph(
     paragraph: ParagraphLayout, toc_level: int, ref_id_to_number: RefIdMap | None = None
 ) -> Generator[str, None, None]:
+    if paragraph.ref in {"verse", "poetry", "letter", "quote", "scene-break"}:
+        from dataclasses import replace
+        text = "".join(render_paragraph(replace(paragraph, ref="text"), toc_level, ref_id_to_number))
+        if paragraph.ref == "quote":
+            yield "\n".join("> " + line for line in text.split("\n"))
+        elif paragraph.ref == "scene-break":
+            yield text
+        else:
+            yield "  \n".join(text.split("\n"))
+        return
     if paragraph.level >= 0 and paragraph.ref in TITLE_TAGS:
         level = min(toc_level + paragraph.level, _MAX_TITLE_LEVELS)
         for _ in range(level + 1):  # level 0 对应 1 个 #

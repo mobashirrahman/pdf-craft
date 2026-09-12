@@ -195,6 +195,8 @@ class OCR:
 
                     if recognized_error is not None:
                         did_fail_any = True
+                        page.diagnostics = {"needs_review": True, "reason": str(recognized_error),
+                                            "recovery": "original page image retained"}
                         failure_path.write_text(
                             type(recognized_error).__name__, encoding="utf-8"
                         )
@@ -202,6 +204,13 @@ class OCR:
                         failure_path.unlink(missing_ok=True)
 
                     save_xml(encode(page), file_path)
+                    if page.diagnostics is not None:
+                        diagnostics_path = ocr_path / f"page_{ref.page_index}.json"
+                        temporary = diagnostics_path.with_suffix(".json.tmp")
+                        temporary.write_text(json.dumps(page.diagnostics, ensure_ascii=False), encoding="utf-8")
+                        temporary.replace(diagnostics_path)
+                        if page.diagnostics.get("needs_review") and image is not None:
+                            image.save(ocr_path / f"page_{ref.page_index}.png")
                     self._save_page_pixel_sizes(geometry_path)
 
                     if cover_path and page.image:

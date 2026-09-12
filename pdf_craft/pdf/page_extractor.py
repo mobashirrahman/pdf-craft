@@ -13,6 +13,7 @@ from ..ocr_config import (
     DeepSeekOCRLocalConfig,
     DeepSeekOCRVendorConfig,
     OCRConfig,
+    TesseractOCRLocalConfig,
     UnlimitedOCRLocalConfig,
     UnlimitedOCRVendorConfig,
 )
@@ -36,6 +37,7 @@ _LOCAL_OCR_CONFIG_TYPES = (
     DeepSeekOCRLocalConfig,
     DeepSeekOCR2LocalConfig,
     UnlimitedOCRLocalConfig,
+    TesseractOCRLocalConfig,
 )
 
 
@@ -54,6 +56,7 @@ class PageExtractorNode:
     def __init__(self, ocr: OCRConfig) -> None:
         self._ocr = ocr
         self._page_extractor = None
+        self._fallback_extractor: PageExtractorNode | None = None
 
     def _get_page_extractor(self):
         if not self._page_extractor:
@@ -61,6 +64,10 @@ class PageExtractorNode:
         return self._page_extractor
 
     def _create_page_extractor(self):
+        if isinstance(self._ocr, TesseractOCRLocalConfig):
+            from .tesseract import TesseractPageExtractor
+
+            return TesseractPageExtractor(self._ocr)
         # 尽可能推迟 doc-page-extractor 的加载时间
         if isinstance(self._ocr, DeepSeekOCRLocalConfig):
             ocr = self._ocr
@@ -179,6 +186,20 @@ class PageExtractorNode:
         aborted: AbortedCheck,
     ) -> Page:
         self._validate_ocr_size(ocr_size)
+        if isinstance(self._ocr, TesseractOCRLocalConfig):
+            return self._tesseract_image2page(
+                image=image,
+                page_index=page_index,
+                asset_hub=asset_hub,
+                ocr_size=ocr_size,
+                includes_footnotes=includes_footnotes,
+                includes_raw_image=includes_raw_image,
+                plot_path=plot_path,
+                max_tokens=max_tokens,
+                max_output_tokens=max_output_tokens,
+                device_number=device_number,
+                aborted=aborted,
+            )
         from doc_page_extractor.extraction_context import AbortError, TokenLimitError
         from doc_page_extractor.plot import plot
         from doc_page_extractor.types import ExtractionContext
@@ -257,6 +278,60 @@ class PageExtractorNode:
                 footnotes_layouts=footnotes_layouts,
                 input_tokens=context.input_tokens,
                 output_tokens=context.output_tokens,
+            )
+
+    def _tesseract_image2page(
+        self,
+        image: Image,
+        page_index: int,
+        asset_hub: AssetHub,
+        ocr_size: DeepSeekOCRSize,
+        includes_footnotes: bool,
+        includes_raw_image: bool,
+        plot_path: Path | None,
+        max_tokens: int | None,
+        max_output_tokens: int | None,
+        device_number: int | None,
+        aborted: AbortedCheck,
+    ) -> Page:
+        config = self._ocr
+        assert isinstance(config, TesseractOCRLocalConfig)
+        try:
+            page = self._get_page_extractor().recognize(
+                image=image,
+                page_index=page_index,
+                includes_raw_image=includes_raw_image,
+                plot_path=plot_path,
+                aborted=aborted,
+            )
+            if page.diagnostics and page.diagnostics.get("needs_review"):
+                det = (0, 0, image.width, image.height)
+                page.body_layouts.append(PageLayout(
+                    ref="image", det=det, text=f"Source page {page_index} (OCR needs review)",
+                    order=len(page.body_layouts), hash=asset_hub.clip(image, det),
+                ))
+            return page
+        except RuntimeError as error:
+            if config.fallback is None:
+                raise OCRError(
+                    f"Failed to extract page {page_index} with Tesseract.",
+                    page_index=page_index,
+                    step_index=1,
+                ) from error
+            if self._fallback_extractor is None:
+                self._fallback_extractor = PageExtractorNode(config.fallback)
+            return self._fallback_extractor.image2page(
+                image=image,
+                page_index=page_index,
+                asset_hub=asset_hub,
+                ocr_size=ocr_size,
+                includes_footnotes=includes_footnotes,
+                includes_raw_image=includes_raw_image,
+                plot_path=plot_path,
+                max_tokens=max_tokens,
+                max_output_tokens=max_output_tokens,
+                device_number=device_number,
+                aborted=aborted,
             )
 
     def _iter_page_layouts(

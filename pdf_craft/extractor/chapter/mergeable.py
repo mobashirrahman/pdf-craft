@@ -8,6 +8,8 @@ from .content import first, last
 # 句尾标识符号
 # to see https://github.com/opendatalab/MinerU/blob/fa1149cd4abf9db5e0f13e4e074cdb568be189f4/mineru/utils/span_pre_proc.py#L247
 _LINE_STOP_FLAGS = (
+    "।",
+    "॥",
     ".",
     "!",
     "?",

@@ -1,7 +1,7 @@
 # pylint: disable=protected-access,unused-argument
 from collections.abc import Callable, Generator, Iterable
 from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import Generic, Literal, TypeVar
 from xml.etree.ElementTree import Element
 
 from pdf_craft.llm import LLM, Message, MessageRole, runtime_for
@@ -39,6 +39,7 @@ class XMLTranslator:
         max_fill_displaying_errors: int,
         max_group_score: int,
         cache_seed_content: str | None = None,
+        prompt_template: Literal["translate", "proofread"] = "translate",
     ) -> None:
         self._translation_llm: LLM = translation_llm
         self._fill_llm: LLM = fill_llm
@@ -50,6 +51,7 @@ class XMLTranslator:
         self._max_retries: int = max_retries
         self._max_fill_displaying_errors: int = max_fill_displaying_errors
         self._cache_seed_content: str | None = cache_seed_content
+        self._prompt_template: str = prompt_template
         self._stream_mapper: XMLStreamMapper = XMLStreamMapper(
             encoding=translation_llm.encoding,
             max_group_score=max_group_score,
@@ -236,7 +238,7 @@ class XMLTranslator:
                 input=[
                     Message(
                         role=MessageRole.SYSTEM,
-                        message=self._translation_llm.template("translate").render(
+                        message=self._translation_llm.template(self._prompt_template).render(
                             target_language=self._target_language,
                             user_prompt=self._user_prompt,
                         ),

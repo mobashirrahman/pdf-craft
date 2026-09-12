@@ -192,7 +192,8 @@ class TestComposableBoundaries(unittest.TestCase):
             with patch("pdf_craft.renderer.markdown.renderer.render_markdown_file") as markdown:
                 MarkdownRenderer().render(extraction, root / "book.md")
             self.assertEqual(markdown.call_args.args[0].name, "chapters")
-            with patch("pdf_craft.renderer.epub.renderer.render_epub_file") as epub:
+            with patch("pdf_craft.renderer.epub.renderer.render_epub_file") as epub, \
+                    patch("pdf_craft.renderer.epub.publication.finalize_publication"):
                 EpubRenderer().render(extraction, root / "book.epub")
             self.assertEqual(epub.call_args.args[0].name, "chapters")
 

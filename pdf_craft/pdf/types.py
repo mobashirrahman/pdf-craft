@@ -18,6 +18,7 @@ class Page:
     footnotes_layouts: list["PageLayout"]
     input_tokens: int
     output_tokens: int
+    diagnostics: dict | None = None
 
 
 @dataclass

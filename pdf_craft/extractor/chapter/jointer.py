@@ -280,6 +280,9 @@ class Jointer:
         block1 = para1.blocks[-1]
         block2 = para2.blocks[0]
 
+        if block2.page_index not in (block1.page_index, block1.page_index + 1):
+            return False
+
         return check_mergeable(block1.content, block2.content)
 
 
@@ -473,6 +476,8 @@ def _normalize_paragraph_content(paragraph: ParagraphLayout):
         text1 = text1.rstrip()
         text2 = text2.lstrip()
         if not _is_splitted_word(text1, text2):
+            if text1 and text2 and ("\u0980" <= text1[-1] <= "\u09ff") and ("\u0980" <= text2[0] <= "\u09ff"):
+                block1.content[-1] = text1 + " "
             continue
 
         tail_end = 0
